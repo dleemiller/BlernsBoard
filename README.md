@@ -2,7 +2,33 @@
 
 A single HTML file that reads TensorBoard event logs
 
+## Install
+
+Any of these gives you a `blernsboard` command. Python 3.8+ is the only requirement; there are no dependencies.
+
+```sh
+pipx install git+https://github.com/futo-org/BlernsBoard      # or: pip install git+...
+```
+
+```sh
+git clone https://github.com/futo-org/BlernsBoard && cd BlernsBoard
+make install            # ~/.local/bin/blernsboard, files in ~/.local/share/blernsboard
+make uninstall
+```
+
+`make install` tells you if `~/.local/bin` is not on your PATH (common on macOS). Use `make install PREFIX=/usr/local` for a system-wide install.
+
 ## Run it
+
+Flags follow TensorBoard's names:
+
+```sh
+blernsboard --logdir runs/                  # http://localhost:6006/
+blernsboard --logdir runs/ --bind_all       # reachable from other machines
+blernsboard runs/ --port 8080 --open        # positional logdir, open a browser
+```
+
+Without installing anything, the page also works with any static server. Copy it into the log directory and serve it:
 
 ```sh
 cp blernsboard.html /path/to/logs/
@@ -10,12 +36,7 @@ cd /path/to/logs && python3 -m http.server --bind 0.0.0.0 6006
 # open http://<host>:6006/blernsboard.html
 ```
 
-Option 2
-
-```sh
-python3 serve.py /path/to/logs --bind 0.0.0.0 --port 6006
-# open http://<host>:6006/
-```
+Or run the helper from the checkout: `python3 serve.py --logdir /path/to/logs --bind_all`.
 
 The page can also be served from elsewhere and pointed at a directory on the
 same server with `?logdir=/some/path/`. Runs are discovered by walking the

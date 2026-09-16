@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Optional helper: serve blernsboard.html together with a log directory.
+"""BlernsBoard: serve blernsboard.html together with a TensorBoard log directory.
 
-    python3 serve.py LOGDIR [--port 6006] [--bind 0.0.0.0]
+    blernsboard --logdir runs/                 # http://localhost:6006/
+    blernsboard --logdir runs/ --bind_all      # reachable from other machines
+    blernsboard runs/ --port 8080 --open       # positional logdir, open a browser
 
-Not required. `python3 -m http.server` inside the logdir works too, once
-blernsboard.html is copied there. This helper adds three conveniences:
-
-  * the page is served at / without copying it into the logdir
-  * HTTP Range requests, so tailing a growing event file only fetches the tail
-  * POST /__log accepts console errors from the page and prints them here,
-    so problems seen in a remote browser show up in this terminal
+Flags follow TensorBoard's names. The page alone also works with any static
+server (copy blernsboard.html into the logdir and run python3 -m http.server);
+this helper adds: no copying, HTTP Range so tailing a growing file only fetches
+the tail, and browser console errors echoed to this terminal via POST /__log.
 """
 import argparse, json, os, sys, functools
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
+__version__ = "0.1.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 PAGE = os.path.join(HERE, "blernsboard.html")
 
@@ -115,22 +115,41 @@ class Handler(SimpleHTTPRequestHandler):
         super().log_message(fmt, *args)
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("logdir")
-    ap.add_argument("--port", type=int, default=6006)
-    ap.add_argument("--bind", default="0.0.0.0")
-    a = ap.parse_args()
-    logdir = os.path.abspath(a.logdir)
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="blernsboard", description="Serve BlernsBoard over a TensorBoard log directory.",
+                                 epilog="Flags follow TensorBoard: --logdir, --port, --host, --bind_all.")
+    ap.add_argument("logdir_pos", nargs="?", metavar="LOGDIR", help="log directory (same as --logdir)")
+    ap.add_argument("--logdir", help="directory containing runs (default: current directory)")
+    ap.add_argument("--port", type=int, default=6006, help="port to listen on (default 6006)")
+    ap.add_argument("--host", default=None, help="address to bind (default localhost)")
+    ap.add_argument("--bind_all", "--bind-all", action="store_true", help="listen on all interfaces (0.0.0.0)")
+    ap.add_argument("--open", action="store_true", help="open the page in a browser")
+    ap.add_argument("--quiet", action="store_true", help="do not print each request")
+    ap.add_argument("--version", action="version", version="blernsboard " + __version__)
+    a = ap.parse_args(argv)
+    logdir = os.path.abspath(a.logdir or a.logdir_pos or ".")
     if not os.path.isdir(logdir):
-        sys.exit(f"not a directory: {logdir}")
+        sys.exit(f"blernsboard: not a directory: {logdir}")
+    if not os.path.isfile(PAGE):
+        sys.exit(f"blernsboard: blernsboard.html not found next to {__file__}")
+    if a.quiet:
+        os.environ["BLERNS_QUIET"] = "1"
+    host = a.host or ("0.0.0.0" if a.bind_all else "localhost")
     handler = functools.partial(Handler, directory=logdir)
-    srv = ThreadingHTTPServer((a.bind, a.port), handler)
-    print(f"BlernsBoard  http://{a.bind}:{a.port}/   logdir={logdir}", flush=True)
+    try:
+        srv = ThreadingHTTPServer((host, a.port), handler)
+    except OSError as e:
+        sys.exit(f"blernsboard: cannot listen on {host}:{a.port}: {e.strerror}")
+    shown = "localhost" if host in ("0.0.0.0", "::", "localhost") else host
+    url = f"http://{shown}:{a.port}/"
+    print(f"BlernsBoard {__version__}  {url}  logdir={logdir}" + ("  (all interfaces)" if host == "0.0.0.0" else ""), flush=True)
+    if a.open:
+        import webbrowser
+        webbrowser.open(url)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
-        pass
+        print()
 
 
 if __name__ == "__main__":

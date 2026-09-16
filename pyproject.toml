@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "blernsboard"
+version = "0.1.0"
+description = "A single-file TensorBoard log viewer: dark mode, better plotting, no backend."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+dependencies = []
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.scripts]
+blernsboard = "blernsboard.serve:main"
+
+# The repo stays flat (blernsboard.html is the product, serve.py the launcher);
+# the wheel places both inside a `blernsboard` package so serve.py finds the page next to itself.
+[tool.hatch.build.targets.wheel]
+packages = []
+
+[tool.hatch.build.targets.wheel.force-include]
+"serve.py" = "blernsboard/serve.py"
+"blernsboard.html" = "blernsboard/blernsboard.html"
+
+[tool.hatch.build.targets.sdist]
+include = ["serve.py", "blernsboard.html", "README.md", "LICENSE", "Makefile", "pyproject.toml"]
