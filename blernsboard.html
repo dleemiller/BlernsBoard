@@ -1,0 +1,1647 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BlernsBoard</title>
+<style>
+:root {
+  color-scheme: dark;
+  --page: #101114;
+  --card: #15161a;
+  --card-2: #1c1d22;
+  --border: rgba(255,255,255,.08);
+  --border-2: rgba(255,255,255,.16);
+  --ink: #e7e7e4;
+  --ink-2: #a3a49f;
+  --ink-3: #6c6d72;
+  --grid: #23242a;
+  --axis: #34353b;
+  --warn: #e0a23a;
+  --sel: rgba(231,231,228,.08);
+  --sel-2: rgba(231,231,228,.14);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --page: #f3f3f1;
+  --card: #ffffff;
+  --card-2: #f4f4f2;
+  --border: rgba(0,0,0,.10);
+  --border-2: rgba(0,0,0,.20);
+  --ink: #17181b;
+  --ink-2: #55565b;
+  --ink-3: #8a8b90;
+  --grid: #ececea;
+  --axis: #d6d6d3;
+  --warn: #9b5f05;
+  --sel: rgba(23,24,27,.06);
+  --sel-2: rgba(23,24,27,.11);
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  --side: 264px;
+  background: var(--page);
+  color: var(--ink);
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr);
+  grid-template-columns: var(--side) minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+}
+button, input, select { font: inherit; color: inherit; }
+button { background: none; border: 1px solid transparent; border-radius: 3px; padding: 2px 7px; cursor: pointer; }
+button:hover { background: var(--sel); }
+button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+input[type=text], select {
+  background: var(--card); border: 1px solid var(--border-2); border-radius: 3px; padding: 4px 7px; width: 100%;
+}
+input[type=text]::placeholder { color: var(--ink-3); }
+input[type=text].bad { border-color: var(--warn); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* header */
+header {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; gap: 14px; padding: 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+header .brand { font-weight: 600; letter-spacing: .01em; }
+header .root { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+header .fresh { display: flex; align-items: center; gap: 7px; color: var(--ink-2); white-space: nowrap; }
+header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); transition: background .2s; }
+header .dot.busy { background: var(--ink-3); }
+header .dot.bad { background: var(--warn); }
+header select { width: auto; padding: 2px 4px; }
+header .errs { color: var(--warn); display: none; }
+header .errs.on { display: inline; }
+
+/* sidebar */
+aside {
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  padding: 10px 10px 12px;
+  background: var(--card);
+  display: flex; flex-direction: column; min-height: 0; position: relative;
+}
+aside .resize { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; z-index: 2; }
+aside .resize:hover, aside .resize.on { background: var(--sel-2); }
+aside .disp { flex: none; border-top: 1px solid var(--border); padding-top: 4px; margin-top: 8px; }
+aside h2 { font-size: 13px; font-weight: 600; margin: 8px 4px 6px; display: flex; justify-content: space-between; color: var(--ink); }
+aside h2 .count { color: var(--ink-3); font-weight: 400; }
+.runtools { display: flex; gap: 2px; margin: 6px 0 4px; color: var(--ink-2); }
+.runtools button { padding: 1px 6px; }
+#runs { list-style: none; margin: 0; padding: 0; flex: 0 1 auto; min-height: 80px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
+#runs li {
+  display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 3px; cursor: pointer;
+  user-select: none; min-height: 24px;
+}
+#runs li:hover { background: var(--sel); }
+#runs li.hl { background: var(--sel-2); }
+#runs li.near { background: var(--sel); }
+#runs .sw {
+  width: 12px; height: 12px; border-radius: 3px; flex: none;
+  background: var(--c); border: 2px solid var(--c);
+}
+#runs li.off .sw { background: transparent; }
+#runs li.off .name { color: var(--ink-3); }
+#runs .name { flex: 1; min-width: 0; display: flex; white-space: nowrap; }
+#runs .name .a { flex: 0 4 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+#runs .name .b { flex: 0 1 auto; min-width: 45%; overflow: hidden; text-overflow: ellipsis; }
+#runs li.off .name .a { color: var(--ink-3); }
+#runs .meta { color: var(--ink-3); font-size: 11px; white-space: nowrap; }
+#runs .warn { color: var(--warn); font-size: 12px; }
+.ctl { display: flex; flex-direction: column; gap: 9px; padding: 2px 4px; }
+.ctl label, .ctl .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink-2); }
+.ctl .row > span:first-child, .ctl label > span:first-child { flex: 1; }
+.seg { display: inline-flex; border: 1px solid var(--border-2); border-radius: 3px; overflow: hidden; }
+.seg button { border-radius: 0; padding: 2px 8px; color: var(--ink-2); border: 0; }
+.seg button + button { border-left: 1px solid var(--border-2); }
+.seg button[aria-pressed="true"] { background: var(--sel-2); color: var(--ink); }
+input[type=range] { width: 120px; accent-color: var(--ink-2); }
+input[type=checkbox] { accent-color: var(--ink-2); width: 14px; height: 14px; margin: 0; }
+.ctl .val { min-width: 34px; text-align: right; color: var(--ink); }
+
+/* main */
+main { overflow-y: auto; padding: 12px 16px 60px; scrollbar-gutter: stable; }
+.filterrow { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+.filterrow input { max-width: 420px; }
+.filterrow .hint { color: var(--ink-3); white-space: nowrap; }
+section.group { margin-bottom: 18px; }
+section.group > h3 {
+  font-size: 13px; font-weight: 600; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
+}
+section.group > h3 .count { color: var(--ink-3); font-weight: 400; }
+section.group > h3 .chev { display: inline-block; width: 0; height: 0; border: 5px solid transparent; border-left: 6px solid var(--ink-3); border-right: 0; transform: rotate(90deg); transition: transform .12s; }
+section.group.closed > h3 .chev { transform: none; }
+section.group.closed > .grid { display: none; }
+.grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+main[data-cols="1"] .grid { grid-template-columns: 1fr; }
+main[data-cols="2"] .grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+main[data-cols="3"] .grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 4px; height: 240px;
+  display: flex; flex-direction: column; min-width: 0; position: relative;
+}
+.card.big { grid-column: 1 / -1; height: 480px; }
+.card:focus-within, .card:hover { border-color: var(--border-2); }
+.card .head { display: flex; align-items: center; height: 28px; padding: 0 4px 0 10px; gap: 4px; flex: none; }
+.card .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.card .title .pre { color: var(--ink-3); }
+.card .title .run { color: var(--ink-2); }
+.card .acts { display: flex; gap: 0; opacity: 0; transition: opacity .1s; }
+.card:hover .acts, .card:focus-within .acts, .card .acts:has([aria-pressed="true"]) { opacity: 1; }
+.card .acts button { padding: 2px 5px; color: var(--ink-3); display: inline-flex; align-items: center; line-height: 1; }
+.card .acts button:hover { color: var(--ink); }
+.card .acts button[aria-pressed="true"] { color: var(--ink); }
+.card .acts button.pin[aria-pressed="true"] { opacity: 1; }
+.card .acts svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.card .acts .txt { font-size: 11px; font-weight: 600; }
+.plot { flex: 1; min-height: 0; position: relative; cursor: crosshair; }
+.plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.plot .note { position: absolute; left: 10px; top: 6px; color: var(--ink-3); font-size: 11px; pointer-events: none; }
+.tip {
+  position: absolute; z-index: 3; pointer-events: none; display: none;
+  background: var(--card-2); border: 1px solid var(--border-2); border-radius: 4px; padding: 6px 8px;
+  font-size: 12px; min-width: 140px; max-width: 320px; box-shadow: 0 4px 16px rgba(0,0,0,.25);
+}
+.tip.on { display: block; }
+.tip .th { color: var(--ink-2); margin-bottom: 4px; white-space: nowrap; }
+.tip table { border-collapse: collapse; }
+.tip td { padding: 1px 4px 1px 0; white-space: nowrap; vertical-align: baseline; }
+.tip td.k { width: 14px; padding-right: 6px; }
+.tip td.k i { display: block; width: 14px; height: 2px; background: var(--c); border-radius: 1px; }
+.tip td.v { font-weight: 600; text-align: right; }
+.tip td.r { color: var(--ink-3); text-align: right; }
+.tip td.n { color: var(--ink-2); max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.tip tr.hl td.n { color: var(--ink); }
+.tip tr.dim { opacity: .5; }
+/* text cards */
+.textbody { flex: 1; min-height: 0; overflow: auto; padding: 4px 10px 8px; white-space: pre-wrap; word-break: break-word; font-size: 12px; color: var(--ink-2); }
+.textnav { display: flex; align-items: center; gap: 8px; padding: 0 10px 6px; color: var(--ink-3); font-size: 11px; }
+.textnav input[type=range] { flex: 1; width: auto; }
+/* states */
+.state { max-width: 640px; margin: 40px auto; background: var(--card); border: 1px solid var(--border); border-radius: 4px; padding: 20px 24px; color: var(--ink-2); }
+.state h2 { margin: 0 0 8px; color: var(--ink); font-size: 15px; }
+.state pre { background: var(--page); border: 1px solid var(--border); padding: 8px 10px; border-radius: 3px; overflow-x: auto; color: var(--ink); }
+.state p { margin: 8px 0; }
+.empty { color: var(--ink-3); padding: 20px 4px; }
+.empty button { border-color: var(--border-2); margin-left: 8px; }
+@media (max-width: 860px) {
+  body { grid-template-columns: 1fr !important; grid-template-rows: 44px auto minmax(0,1fr); }
+  aside { border-right: 0; border-bottom: 1px solid var(--border); max-height: 45vh; }
+  aside .resize { display: none; }
+  header .root { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">BlernsBoard</span>
+  <span class="root" id="rootLabel" title=""></span>
+  <span class="errs" id="errs" title=""></span>
+  <span class="fresh"><span class="dot busy" id="dot"></span><span id="freshText">starting</span></span>
+  <select id="refreshSel" title="Refresh interval" aria-label="Refresh interval">
+    <option value="5">5s</option><option value="15">15s</option><option value="30">30s</option><option value="60">60s</option><option value="0">off</option>
+  </select>
+  <button id="refreshBtn" title="Refresh now" aria-label="Refresh now">refresh</button>
+  <button id="themeBtn" title="Switch theme" aria-label="Switch theme">light</button>
+</header>
+<aside>
+  <h2>Runs <span class="count" id="runCount"></span></h2>
+  <input type="text" id="runFilter" placeholder="filter runs (regex)" aria-label="Filter runs" spellcheck="false">
+  <div class="runtools">
+    <button data-act="all">all</button><button data-act="none">none</button><button data-act="invert">invert</button>
+  </div>
+  <ul id="runs"></ul>
+  <div class="disp">
+  <h2>Display</h2>
+  <div class="ctl">
+    <div class="row"><span>smoothing</span><input type="range" id="smooth" min="0" max="0.99" step="0.01" aria-label="Smoothing"><span class="val num" id="smoothVal">0</span></div>
+    <div class="row"><span>x axis</span><span class="seg" id="xmode" role="group" aria-label="X axis"><button data-v="step">step</button><button data-v="rel">time</button><button data-v="wall">clock</button></span></div>
+    <div class="row"><span>y axis</span><span class="seg" id="ymode" role="group" aria-label="Y axis"><button data-v="lin">linear</button><button data-v="log">log</button></span></div>
+    <div class="row"><span>columns</span><span class="seg" id="cols" role="group" aria-label="Columns"><button data-v="0">auto</button><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button></span></div>
+    <label><span>ignore outliers when fitting y</span><input type="checkbox" id="outliers"></label>
+    <label><span>sync zoom across charts</span><input type="checkbox" id="sync"></label>
+    <label title="After a restart, TensorBoard-style logs contain steps twice. Off drops the older copy; on keeps every point in the order it was written."><span>keep overwritten points</span><input type="checkbox" id="keep"></label>
+  </div>
+  </div>
+  <div class="resize" id="resize" title="Drag to resize"></div>
+</aside>
+<main id="main">
+  <div class="filterrow">
+    <input type="text" id="tagFilter" placeholder="filter tags (regex)" aria-label="Filter tags" spellcheck="false">
+    <span class="hint" id="tagHint"></span>
+  </div>
+  <div id="content"></div>
+</main>
+
+<script>
+'use strict';
+/* =====================================================================
+   Worker: discovery, fetching, TFRecord + protobuf decoding, series store
+   ===================================================================== */
+function workerMain() {
+  const dec = new TextDecoder('utf-8');
+  const post = (m, t) => self.postMessage(m, t || []);
+
+  // ---- CRC-32C (Castagnoli), masked as TensorFlow does -----------------
+  const CRC_T = new Int32Array(256);
+  for (let i = 0; i < 256; i++) { let c = i; for (let k = 0; k < 8; k++) c = (c & 1) ? ((c >>> 1) ^ 0x82F63B78) : (c >>> 1); CRC_T[i] = c; }
+  function crc32c(u8, s, e) { let c = -1; for (let i = s; i < e; i++) c = CRC_T[(c ^ u8[i]) & 0xff] ^ (c >>> 8); return (~c) >>> 0; }
+  function maskedCrc(u8, s, e) { const x = crc32c(u8, s, e); return ((((x >>> 15) | (x << 17)) >>> 0) + 0xa282ead8) >>> 0; }
+
+  // ---- protobuf wire reader ------------------------------------------------
+  class R {
+    constructor(u8, dv, pos, end) { this.u8 = u8; this.dv = dv; this.pos = pos; this.end = end; }
+    varint() {
+      let r = 0, m = 1, b;
+      do { if (this.pos >= this.end) throw new Error('truncated varint'); b = this.u8[this.pos++]; r += (b & 0x7f) * m; m *= 128; } while (b & 0x80);
+      return r >= 9223372036854775808 ? r - 18446744073709551616 : r;
+    }
+    skip(wt) {
+      if (wt === 0) this.varint(); else if (wt === 1) this.pos += 8; else if (wt === 2) { const n = this.varint(); this.pos += n; } else if (wt === 5) this.pos += 4;
+      else throw new Error('bad wire type ' + wt);
+      if (this.pos > this.end) throw new Error('truncated field');
+    }
+    bytes() { const n = this.varint(); const s = this.pos; this.pos += n; if (this.pos > this.end) throw new Error('truncated bytes'); return this.u8.subarray(s, this.pos); }
+    str() { return dec.decode(this.bytes()); }
+    f64() { const v = this.dv.getFloat64(this.pos, true); this.pos += 8; return v; }
+    f32() { const v = this.dv.getFloat32(this.pos, true); this.pos += 4; return v; }
+    sub() { const n = this.varint(); const r = new R(this.u8, this.dv, this.pos, this.pos + n); this.pos += n; if (this.pos > this.end) throw new Error('truncated message'); return r; }
+    more() { return this.pos < this.end; }
+  }
+  // repeated numeric field: packed (wt 2) or single
+  function repNum(r, wt, out, kind) {
+    if (wt === 2) { const s = r.sub(); while (s.more()) out.push(kind === 'f32' ? s.f32() : kind === 'f64' ? s.f64() : s.varint()); }
+    else out.push(kind === 'f32' ? r.f32() : kind === 'f64' ? r.f64() : r.varint());
+  }
+  function decodeTensor(r) {
+    const t = { dtype: 0, shape: [], content: null, f32: [], f64: [], i32: [], i64: [], str: [], bool: [], half: [], u32: [], u64: [] };
+    while (r.more()) {
+      const k = r.varint(), f = k >>> 3, wt = k & 7;
+      switch (f) {
+        case 1: t.dtype = r.varint(); break;
+        case 2: { const s = r.sub(); while (s.more()) { const k2 = s.varint(); if ((k2 >>> 3) === 2) { const d = s.sub(); let size = 0; while (d.more()) { const k3 = d.varint(); if ((k3 >>> 3) === 1) size = d.varint(); else d.skip(k3 & 7); } t.shape.push(size); } else s.skip(k2 & 7); } break; }
+        case 4: t.content = r.bytes(); break;
+        case 5: repNum(r, wt, t.f32, 'f32'); break;
+        case 6: repNum(r, wt, t.f64, 'f64'); break;
+        case 7: repNum(r, wt, t.i32, 'v'); break;
+        case 8: t.str.push(r.bytes()); break;
+        case 10: repNum(r, wt, t.i64, 'v'); break;
+        case 11: repNum(r, wt, t.bool, 'v'); break;
+        case 13: repNum(r, wt, t.half, 'v'); break;
+        case 16: repNum(r, wt, t.u32, 'v'); break;
+        case 17: repNum(r, wt, t.u64, 'v'); break;
+        default: r.skip(wt);
+      }
+    }
+    return t;
+  }
+  function halfToFloat(h) {
+    const s = (h & 0x8000) ? -1 : 1, e = (h >> 10) & 0x1f, m = h & 0x3ff;
+    if (e === 0) return s * m * Math.pow(2, -24);
+    if (e === 31) return m ? NaN : s * Infinity;
+    return s * (1 + m / 1024) * Math.pow(2, e - 15);
+  }
+  function bf16ToFloat(b) { const dv = new DataView(new ArrayBuffer(4)); dv.setUint32(0, (b & 0xffff) << 16); return dv.getFloat32(0); }
+  // numeric tensor -> Float64Array (numbers), or null if not numeric
+  function tensorNumbers(t) {
+    const c = t.content;
+    if (c && c.length) {
+      const buf = c.slice().buffer; // aligned copy
+      const out = (arr) => Float64Array.from(arr, Number);
+      switch (t.dtype) {
+        case 1: return out(new Float32Array(buf));
+        case 2: return out(new Float64Array(buf));
+        case 3: return out(new Int32Array(buf));
+        case 4: return out(new Uint8Array(buf));
+        case 5: return out(new Int16Array(buf));
+        case 6: return out(new Int8Array(buf));
+        case 9: return out(new BigInt64Array(buf));
+        case 10: return out(new Uint8Array(buf));
+        case 14: { const u = new Uint16Array(buf); return Float64Array.from(u, bf16ToFloat); }
+        case 17: return out(new Uint16Array(buf));
+        case 19: { const u = new Uint16Array(buf); return Float64Array.from(u, halfToFloat); }
+        case 22: return out(new Uint32Array(buf));
+        case 23: return out(new BigUint64Array(buf));
+        default: return null;
+      }
+    }
+    if (t.f32.length) return Float64Array.from(t.f32);
+    if (t.f64.length) return Float64Array.from(t.f64);
+    if (t.i32.length) return Float64Array.from(t.i32);
+    if (t.i64.length) return Float64Array.from(t.i64);
+    if (t.half.length) return Float64Array.from(t.half, t.dtype === 14 ? bf16ToFloat : halfToFloat);
+    if (t.bool.length) return Float64Array.from(t.bool);
+    if (t.u32.length) return Float64Array.from(t.u32);
+    if (t.u64.length) return Float64Array.from(t.u64);
+    if (t.dtype === 7) return null;
+    return new Float64Array(0);
+  }
+  function decodeHisto(r) {
+    const h = { min: NaN, max: NaN, num: 0, sum: NaN, limits: [], counts: [] };
+    while (r.more()) {
+      const k = r.varint(), f = k >>> 3, wt = k & 7;
+      switch (f) {
+        case 1: h.min = r.f64(); break;
+        case 2: h.max = r.f64(); break;
+        case 3: h.num = r.f64(); break;
+        case 4: h.sum = r.f64(); break;
+        case 6: repNum(r, wt, h.limits, 'f64'); break;
+        case 7: repNum(r, wt, h.counts, 'f64'); break;
+        default: r.skip(wt);
+      }
+    }
+    return h;
+  }
+  function decodeValue(r) {
+    const v = { tag: '', simple: NaN, hasSimple: false, histo: null, tensor: null, plugin: null, image: false, audio: false };
+    while (r.more()) {
+      const k = r.varint(), f = k >>> 3, wt = k & 7;
+      switch (f) {
+        case 1: v.tag = r.str(); break;
+        case 2: v.simple = r.f32(); v.hasSimple = true; break;
+        case 4: r.skip(wt); v.image = true; break;
+        case 5: v.histo = decodeHisto(r.sub()); break;
+        case 6: r.skip(wt); v.audio = true; break;
+        case 8: v.tensor = decodeTensor(r.sub()); break;
+        case 9: { const m = r.sub(); while (m.more()) { const k2 = m.varint(); if ((k2 >>> 3) === 1) { const p = m.sub(); while (p.more()) { const k3 = p.varint(); if ((k3 >>> 3) === 1) v.plugin = p.str(); else p.skip(k3 & 7); } } else m.skip(k2 & 7); } break; }
+        default: r.skip(wt);
+      }
+    }
+    return v;
+  }
+  function decodeEvent(u8, dv, pos, end) {
+    const r = new R(u8, dv, pos, end);
+    const ev = { wall: 0, step: 0, values: null, sessionStart: false };
+    while (r.more()) {
+      const k = r.varint(), f = k >>> 3, wt = k & 7;
+      switch (f) {
+        case 1: ev.wall = r.f64(); break;
+        case 2: ev.step = r.varint(); break;
+        case 5: { const s = r.sub(); ev.values = []; while (s.more()) { const k2 = s.varint(); if ((k2 >>> 3) === 1) ev.values.push(decodeValue(s.sub())); else s.skip(k2 & 7); } break; }
+        case 7: { const s = r.sub(); while (s.more()) { const k2 = s.varint(); if ((k2 >>> 3) === 1) { if (s.varint() === 1) ev.sessionStart = true; } else s.skip(k2 & 7); } break; }
+        default: r.skip(wt);
+      }
+    }
+    return ev;
+  }
+
+  // ---- series store ----------------------------------------------------------
+  let purge = true;
+  const runs = new Map(); // name -> run
+  const dirty = new Map(); // series -> min truncation index this batch
+  function newRun(name) {
+    const run = { name, files: new Map(), scalars: new Map(), hists: new Map(), texts: new Map(), plugins: new Map(), warnings: [], ignored: {}, bytes: 0 };
+    runs.set(name, run); return run;
+  }
+  function scalarSeries(run, tag) {
+    let s = run.scalars.get(tag);
+    if (!s) { s = { kind: 'scalar', run: run.name, tag, n: 0, steps: new Float64Array(256), values: new Float64Array(256), walls: new Float64Array(256) }; run.scalars.set(tag, s); }
+    return s;
+  }
+  function listSeries(map, run, tag, kind) {
+    let s = map.get(tag);
+    if (!s) { s = { kind, run: run.name, tag, items: [] }; map.set(tag, s); }
+    return s;
+  }
+  function lowerBound(a, n, x) { let lo = 0, hi = n; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] < x) lo = m + 1; else hi = m; } return lo; }
+  function touch(s) { if (!dirty.has(s)) dirty.set(s, s.kind === 'scalar' ? s.n : s.items.length); }
+  function truncScalar(s, i) { touch(s); if (i < s.n) { s.n = i; dirty.set(s, Math.min(dirty.get(s), i)); } }
+  function truncList(s, i) { touch(s); if (i < s.items.length) { s.items.length = i; dirty.set(s, Math.min(dirty.get(s), i)); } }
+  function addScalar(run, tag, step, value, wall) {
+    const s = scalarSeries(run, tag);
+    touch(s);
+    if (purge && s.n > 0 && step <= s.steps[s.n - 1]) truncScalar(s, lowerBound(s.steps, s.n, step));
+    if (s.n === s.steps.length) {
+      const cap = s.n * 2;
+      const g = (a) => { const b = new Float64Array(cap); b.set(a); return b; };
+      s.steps = g(s.steps); s.values = g(s.values); s.walls = g(s.walls);
+    }
+    s.steps[s.n] = step; s.values[s.n] = value; s.walls[s.n] = wall; s.n++;
+  }
+  function addItem(map, run, tag, kind, item) {
+    const s = listSeries(map, run, tag, kind);
+    touch(s);
+    if (purge && s.items.length && item.step <= s.items[s.items.length - 1].step) {
+      let i = s.items.length; while (i > 0 && s.items[i - 1].step >= item.step) i--;
+      truncList(s, i);
+    }
+    s.items.push(item);
+  }
+  function flush(run) {
+    for (const [s, m] of dirty) {
+      if (s.kind === 'scalar') {
+        const steps = s.steps.slice(m, s.n), values = s.values.slice(m, s.n), walls = s.walls.slice(m, s.n);
+        post({ type: 'scalar', run: s.run, tag: s.tag, truncateTo: m, steps, values, walls }, [steps.buffer, values.buffer, walls.buffer]);
+      } else {
+        post({ type: s.kind, run: s.run, tag: s.tag, truncateTo: m, items: s.items.slice(m) });
+      }
+    }
+    dirty.clear();
+    post({ type: 'runstat', run: run.name, warnings: run.warnings, ignored: run.ignored, bytes: run.bytes, files: [...run.files.values()].map(f => ({ name: f.name, fetched: f.fetched, corrupt: f.corrupt })) });
+  }
+
+  function histFromProto(h) {
+    const n = h.counts.length;
+    let a = 0; while (a < n && h.counts[a] <= 0) a++;
+    let b = n - 1; while (b >= 0 && h.counts[b] <= 0) b--;
+    if (a > b) return { edges: new Float64Array(0), counts: new Float64Array(0) };
+    const counts = Float64Array.from(h.counts.slice(a, b + 1));
+    const inner = h.limits.slice(a, b);
+    const edges = new Float64Array(counts.length + 1);
+    edges[0] = Number.isFinite(h.min) ? h.min : inner[0];
+    for (let i = 0; i < inner.length; i++) edges[i + 1] = inner[i];
+    edges[counts.length] = Number.isFinite(h.max) ? h.max : inner[inner.length - 1];
+    return { edges, counts };
+  }
+  function histFromTensor(nums, shape) {
+    const k = shape.length === 2 ? shape[0] : Math.floor(nums.length / 3);
+    const edges = new Float64Array(k + 1), counts = new Float64Array(k);
+    for (let i = 0; i < k; i++) { edges[i] = nums[i * 3]; counts[i] = nums[i * 3 + 2]; if (i === k - 1) edges[k] = nums[i * 3 + 1]; }
+    return { edges, counts };
+  }
+  function handleEvent(run, ev) {
+    if (ev.sessionStart && purge) {
+      for (const s of run.scalars.values()) { const i = lowerBound(s.steps, s.n, ev.step + 0.5); if (i < s.n) truncScalar(s, i); }
+    }
+    if (!ev.values) return;
+    for (const v of ev.values) {
+      const tag = v.tag;
+      if (v.hasSimple) { addScalar(run, tag, ev.step, v.simple, ev.wall); continue; }
+      if (v.histo) { addItem(run.hists, run, tag, 'hist', { step: ev.step, wall: ev.wall, ...histFromProto(v.histo) }); continue; }
+      if (v.image) { run.ignored.images = (run.ignored.images || 0) + 1; continue; }
+      if (v.audio) { run.ignored.audio = (run.ignored.audio || 0) + 1; continue; }
+      if (!v.tensor) continue;
+      let plugin = v.plugin;
+      if (plugin) run.plugins.set(tag, plugin); else plugin = run.plugins.get(tag) || '';
+      const t = v.tensor;
+      if (plugin === 'images' || plugin === 'audio' || plugin === 'hparams' || plugin === 'graph_run_metadata' || plugin === 'pr_curves' || plugin === 'mesh' || plugin === 'projector' || plugin === 'graphs') { run.ignored[plugin] = (run.ignored[plugin] || 0) + 1; continue; }
+      if (plugin === 'text' || t.dtype === 7) {
+        const text = t.str.map(b => dec.decode(b)).join('\n');
+        addItem(run.texts, run, tag, 'text', { step: ev.step, wall: ev.wall, text }); continue;
+      }
+      const nums = tensorNumbers(t);
+      if (!nums) { run.ignored[plugin || 'unknown'] = (run.ignored[plugin || 'unknown'] || 0) + 1; continue; }
+      const isHistShape = t.shape.length === 2 && t.shape[1] === 3;
+      if (plugin === 'histograms' || (plugin === '' && isHistShape)) { addItem(run.hists, run, tag, 'hist', { step: ev.step, wall: ev.wall, ...histFromTensor(nums, t.shape) }); continue; }
+      if (plugin === 'scalars' || nums.length === 1) { addScalar(run, tag, ev.step, nums.length ? nums[0] : NaN, ev.wall); continue; }
+      run.ignored[plugin || 'tensor'] = (run.ignored[plugin || 'tensor'] || 0) + 1;
+    }
+  }
+  // parse complete records from buf; returns bytes consumed
+  function parseRecords(run, file, buf) {
+    const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    let pos = 0; const n = buf.length;
+    while (pos + 12 <= n) {
+      const lenLo = dv.getUint32(pos, true), lenHi = dv.getUint32(pos + 4, true);
+      const len = lenHi * 4294967296 + lenLo;
+      if (lenHi > 0 || len > 1 << 30) { corrupt(run, file, pos, 'implausible record length ' + len); return pos; }
+      if (maskedCrc(buf, pos, pos + 8) !== dv.getUint32(pos + 8, true)) { corrupt(run, file, pos, 'header CRC mismatch'); return pos; }
+      if (pos + 12 + len + 4 > n) break; // wait for more bytes
+      const ds = pos + 12, de = ds + len;
+      if (maskedCrc(buf, ds, de) !== dv.getUint32(de, true)) { corrupt(run, file, pos, 'data CRC mismatch'); return pos; }
+      try { handleEvent(run, decodeEvent(buf, dv, ds, de)); }
+      catch (e) { corrupt(run, file, pos, 'undecodable event: ' + e.message); return pos; }
+      pos = de + 4;
+    }
+    return pos;
+  }
+  function corrupt(run, file, pos, why) {
+    file.corrupt = true;
+    run.warnings.push(`${file.name}: ${why} at byte ${(file.fetched - file.pendingLen + pos).toLocaleString()}; later records in this file are ignored`);
+  }
+
+  // ---- network -----------------------------------------------------------------
+  let active = 0; const waiters = [];
+  const MAXC = 6;
+  async function withSlot(fn) {
+    if (active >= MAXC) await new Promise(r => waiters.push(r));
+    active++;
+    try { return await fn(); } finally { active--; const w = waiters.shift(); if (w) w(); }
+  }
+  async function fetchFile(run, file) {
+    if (file.corrupt) return false;
+    const headers = file.fetched > 0 ? { Range: `bytes=${file.fetched}-` } : {};
+    let resp;
+    try { resp = await fetch(file.url, { headers, cache: 'no-store' }); }
+    catch (e) { throw new Error('network: ' + e.message); }
+    if (resp.status === 416) return false;
+    if (!resp.ok) { run.warnings.push(`${file.name}: HTTP ${resp.status}`); return false; }
+    let buf = new Uint8Array(await resp.arrayBuffer());
+    if (resp.status === 200 && file.fetched > 0) {
+      if (buf.length <= file.fetched) return false;
+      buf = buf.subarray(file.fetched);
+    }
+    if (!buf.length) return false;
+    file.fetched += buf.length; run.bytes += buf.length;
+    if (file.pending) { const m = new Uint8Array(file.pending.length + buf.length); m.set(file.pending); m.set(buf, file.pending.length); buf = m; }
+    file.pendingLen = buf.length;
+    const used = parseRecords(run, file, buf);
+    file.pending = used < buf.length && !file.corrupt ? buf.slice(used) : null;
+    return true;
+  }
+  async function fileSize(url) {
+    const r = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+    if (r.status === 405 || r.status === 501) return -1; // unknown, fall back to GET
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const cl = r.headers.get('content-length');
+    return cl == null ? -1 : +cl;
+  }
+
+  // ---- discovery -----------------------------------------------------------------
+  const HREF = /href\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
+  async function listDir(url) {
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) throw Object.assign(new Error('HTTP ' + r.status), { status: r.status });
+    const html = await r.text();
+    const dirs = [], files = [];
+    HREF.lastIndex = 0; let m;
+    while ((m = HREF.exec(html))) {
+      let h = (m[1] != null ? m[1] : m[2]).replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+      if (!h || h.startsWith('?') || h.startsWith('#') || h.includes('://') || h.startsWith('//') || h.includes('?')) continue;
+      let u; try { u = new URL(h, url); } catch { continue; }
+      u.hash = ''; u.search = '';
+      if (!u.href.startsWith(url) || u.href === url) continue;
+      const rel = u.href.slice(url.length);
+      if (rel.endsWith('/')) { const name = rel.slice(0, -1); if (!name || name.includes('/') || name.startsWith('.')) continue; dirs.push({ url: u.href, name: decodeURIComponent(name) }); }
+      else { if (rel.includes('/')) continue; const name = decodeURIComponent(rel); if (name.includes('tfevents')) files.push({ url: u.href, name }); }
+    }
+    return { dirs, files, html, contentType: r.headers.get('content-type') || '' };
+  }
+  async function discover(root) {
+    const found = new Map(); // run name -> [{url,name}]
+    let rootInfo;
+    try { rootInfo = await listDir(root); }
+    catch (e) { post({ type: 'rootError', message: e.message, status: e.status || 0 }); return null; }
+    if (!rootInfo.dirs.length && !rootInfo.files.length) {
+      const looksHtml = /<a\s/i.test(rootInfo.html) || /text\/html/i.test(rootInfo.contentType);
+      post({ type: 'rootEmpty', looksHtml, contentType: rootInfo.contentType, snippet: rootInfo.html.slice(0, 200) });
+      return found;
+    }
+    const queue = [{ url: root, name: '.', depth: 0, info: rootInfo }];
+    let dirsSeen = 1;
+    const visit = async (d) => {
+      // hold a network slot only for the fetch itself, never while waiting on children
+      const info = d.info || await withSlot(() => listDir(d.url)).catch(e => { post({ type: 'log', level: 'warn', msg: `listing ${d.url}: ${e.message}` }); return null; });
+      if (!info) return;
+      if (info.files.length) found.set(d.name, info.files.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      if (d.depth >= 10) return;
+      const kids = info.dirs.map(s => ({ url: s.url, name: d.name === '.' ? s.name : d.name + '/' + s.name, depth: d.depth + 1 }));
+      dirsSeen += kids.length;
+      post({ type: 'progress', phase: 'listing', dirs: dirsSeen });
+      await Promise.all(kids.map(visit));
+    };
+    await visit(queue[0]);
+    return found;
+  }
+
+  // ---- cycle ----------------------------------------------------------------------
+  let root = '', busy = false, timer = null, intervalMs = 15000, lastList = 0, first = true;
+  function schedule() { clearTimeout(timer); if (intervalMs > 0) timer = setTimeout(cycle, intervalMs); }
+  async function cycle(force) {
+    if (busy) return; busy = true; clearTimeout(timer);
+    const t0 = Date.now();
+    post({ type: 'progress', phase: 'listing', dirs: 0 });
+    try {
+      let listing = null;
+      if (force || first || Date.now() - lastList > 60000 || runs.size === 0) { listing = await discover(root); lastList = Date.now(); }
+      if (listing) {
+        for (const [name, files] of listing) {
+          const run = runs.get(name) || newRun(name);
+          for (const f of files) if (!run.files.has(f.name)) run.files.set(f.name, { name: f.name, url: f.url, fetched: 0, pending: null, pendingLen: 0, corrupt: false });
+        }
+        post({ type: 'runs', runs: [...runs.keys()] });
+      }
+      let total = 0, done = 0, bytes = 0;
+      for (const run of runs.values()) total += run.files.size;
+      const prog = () => post({ type: 'progress', phase: 'reading', done, total, bytes });
+      await Promise.all([...runs.values()].map(run => withSlot(async () => {
+        let changed = false;
+        const files = [...run.files.values()].sort((a, b) => a.name < b.name ? -1 : 1);
+        // Files in a run are read in name (= time) order, and only the newest one is expected
+        // to grow. If an older file changes after a newer one has been read, the merge order
+        // is no longer valid, so the run is re-read from scratch (rare: concurrent writers).
+        const sizes = new Map(); let reset = false;
+        try {
+          for (let i = 0; i < files.length; i++) {
+            const f = files[i]; if (f.fetched === 0 || f.corrupt) continue;
+            const size = await fileSize(f.url); sizes.set(f, size);
+            if (size >= 0 && size !== f.fetched && (i < files.length - 1 || size < f.fetched)) reset = true;
+          }
+        } catch (e) { run.warnings.push(e.message); post({ type: 'netError', msg: e.message }); }
+        if (reset) { resetRun(run); changed = true; }
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          try {
+            if (file.corrupt) { done++; continue; }
+            const size = sizes.has(file) ? sizes.get(file) : NaN;
+            let need = file.fetched === 0 || size > file.fetched || (size < 0 && i === files.length - 1);
+            if (need) { const before = run.bytes; if (await fetchFile(run, file)) changed = true; bytes += run.bytes - before; }
+          } catch (e) { run.warnings.push(`${file.name}: ${e.message}`); changed = true; post({ type: 'netError', msg: e.message }); }
+          done++; prog();
+        }
+        if (changed || dirty.size) flush(run);
+      })));
+      post({ type: 'progress', phase: 'idle', done, total, bytes, ms: Date.now() - t0 });
+    } catch (e) { post({ type: 'log', level: 'error', msg: 'cycle failed: ' + (e.stack || e.message) }); post({ type: 'progress', phase: 'idle', error: e.message }); }
+    first = false; busy = false; schedule();
+  }
+  function resetRun(run) {
+    for (const s of run.scalars.values()) truncScalar(s, 0);
+    for (const s of run.hists.values()) truncList(s, 0);
+    for (const s of run.texts.values()) truncList(s, 0);
+    for (const f of run.files.values()) { f.fetched = 0; f.pending = null; f.pendingLen = 0; f.corrupt = false; }
+    run.warnings.length = 0; run.ignored = {}; run.bytes = 0;
+    post({ type: 'reset', run: run.name });
+  }
+  self.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === 'start') { root = m.root; intervalMs = m.intervalMs; purge = m.purge; cycle(true); }
+    else if (m.type === 'refresh') cycle(true);
+    else if (m.type === 'interval') { intervalMs = m.intervalMs; if (!busy) schedule(); }
+    else if (m.type === 'purge') { purge = m.purge; for (const run of runs.values()) { resetRun(run); flush(run); } if (!busy) cycle(false); }
+  };
+}
+
+/* =====================================================================
+   Main thread
+   ===================================================================== */
+(() => {
+const $ = (s, el = document) => el.querySelector(s);
+const PALETTE = {
+  dark: ['#2a97f7', '#e86545', '#15a8ae', '#d77804', '#947df3', '#70a71b', '#d962ab', '#b98c06', '#c06cd3', '#03af73'],
+  light: ['#2a78d6', '#e35a2a', '#0e9a9f', '#c26d00', '#7a63e6', '#5b8f0f', '#c94d97', '#9d7a00', '#a94fbd', '#0a9a62'],
+};
+const SVG = {
+  pin: '<svg viewBox="0 0 16 16"><path d="M9.5 1.5l5 5-2 .5-2.5 2.5.5 3.5-1.5 1.5-3-3L2.5 15 1 13.5l3.5-3.5-3-3L3 5.5l3.5.5L9 3.5z"/></svg>',
+  expand: '<svg viewBox="0 0 16 16"><path d="M9.5 2.5h4v4M13.5 2.5l-4.5 4.5M6.5 13.5h-4v-4M2.5 13.5l4.5-4.5"/></svg>',
+  csv: '<svg viewBox="0 0 16 16"><path d="M8 2v8M4.5 6.5L8 10l3.5-3.5M2.5 13.5h11"/></svg>',
+};
+
+// ---- console mirroring: surface page problems in the header and, if serve.py is running, in its terminal
+const errors = [];
+let logEndpoint = null, logQueue = [], logTimer = null;
+function report(level, msg) {
+  if (level === 'error') { errors.push(msg); const el = $('#errs'); el.textContent = `${errors.length} error${errors.length > 1 ? 's' : ''}`; el.title = errors.slice(-8).join('\n'); el.classList.add('on'); }
+  logQueue.push({ level, msg: String(msg).slice(0, 2000), t: Date.now() });
+  if (logEndpoint && !logTimer) logTimer = setTimeout(flushLogs, 300);
+}
+function flushLogs() {
+  logTimer = null; if (!logEndpoint || !logQueue.length) return;
+  const body = JSON.stringify(logQueue.splice(0)); fetch(logEndpoint, { method: 'POST', body, headers: { 'Content-Type': 'application/json' }, keepalive: true }).catch(() => {});
+}
+window.addEventListener('error', e => report('error', `${e.message} (${(e.filename || '').split('/').pop()}:${e.lineno})`));
+window.addEventListener('unhandledrejection', e => report('error', 'unhandled rejection: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+for (const lvl of ['error', 'warn']) { const orig = console[lvl].bind(console); console[lvl] = (...a) => { orig(...a); report(lvl, a.map(x => x instanceof Error ? x.stack : typeof x === 'string' ? x : JSON.stringify(x)).join(' ')); }; }
+{ const meta = document.querySelector('meta[name="blernsboard-log"]'); if (meta && meta.content) { logEndpoint = new URL(meta.content, location.href).href; report('log', 'page loaded ' + location.href + ' · ' + navigator.userAgent); flushLogs(); } }
+
+// ---- state ------------------------------------------------------------------------
+const params = new URLSearchParams(location.search);
+const rootUrl = (() => { let u = new URL(params.get('logdir') || '.', location.href); u.search = ''; u.hash = ''; if (!u.pathname.endsWith('/')) u.pathname += '/'; return u.href; })();
+const storeKey = 'blernsboard:' + rootUrl;
+const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, closed: [], side: 264 };
+const state = { ...DEF };
+function loadState() {
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem(storeKey) || '{}'); } catch {}
+  Object.assign(state, saved);
+  const h = new URLSearchParams(location.hash.slice(1));
+  if ([...h.keys()].length) {
+    if (h.has('runs')) state.runs = h.get('runs') === '' ? [] : h.get('runs').split(',').map(decodeURIComponent);
+    if (h.has('tags')) state.tags = h.get('tags');
+    if (h.has('s')) state.s = +h.get('s') || 0;
+    if (h.has('x')) state.x = h.get('x');
+    if (h.has('y')) state.y = h.get('y');
+    if (h.has('o')) state.o = h.get('o') === '1';
+    if (h.has('pin')) state.pin = h.get('pin') ? h.get('pin').split(',').map(decodeURIComponent) : [];
+    if (h.has('cols')) state.cols = +h.get('cols') || 0;
+    if (h.has('r')) state.r = +h.get('r');
+    if (h.has('sync')) state.sync = h.get('sync') === '1';
+    if (h.has('keep')) state.keep = h.get('keep') === '1';
+    if (h.has('theme')) state.theme = h.get('theme');
+  }
+  if (!['step', 'rel', 'wall'].includes(state.x)) state.x = 'step';
+  if (!['lin', 'log'].includes(state.y)) state.y = 'lin';
+}
+let saveTimer = null;
+function saveState() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const h = new URLSearchParams();
+    if (state.runs) h.set('runs', state.runs.map(encodeURIComponent).join(','));
+    if (state.tags) h.set('tags', state.tags);
+    if (state.s) h.set('s', String(state.s));
+    if (state.x !== 'step') h.set('x', state.x);
+    if (state.y !== 'lin') h.set('y', state.y);
+    if (!state.o) h.set('o', '0');
+    if (state.pin.length) h.set('pin', state.pin.map(encodeURIComponent).join(','));
+    if (state.cols) h.set('cols', String(state.cols));
+    if (state.r !== 15) h.set('r', String(state.r));
+    if (state.sync) h.set('sync', '1');
+    if (state.keep) h.set('keep', '1');
+    if (state.theme !== 'dark') h.set('theme', state.theme);
+    const hs = h.toString();
+    history.replaceState(null, '', location.pathname + location.search + (hs ? '#' + hs : ''));
+    try { localStorage.setItem(storeKey, JSON.stringify(state)); } catch {}
+  }, 150);
+}
+
+// ---- data store (mirror of the worker) ---------------------------------------
+const runs = new Map(); // name -> {name, color, idx, scalars:Map, hists:Map, texts:Map, warnings, ignored, bytes, lastStep, lastWall}
+let colorNext = 0;
+function getRun(name) {
+  let r = runs.get(name);
+  if (!r) { r = { name, idx: -1, scalars: new Map(), hists: new Map(), texts: new Map(), warnings: [], ignored: {}, bytes: 0, lastStep: -Infinity, lastWall: 0, version: 0 }; runs.set(name, r); }
+  return r;
+}
+function assignColors(names) {
+  const fresh = names.filter(n => getRun(n).idx < 0).sort(natCmp);
+  for (const n of fresh) { const r = getRun(n); r.idx = state.colors[n] != null ? state.colors[n] : colorNext++; }
+}
+function runColor(run) {
+  const pal = PALETTE[state.theme === 'light' ? 'light' : 'dark'];
+  const i = run.idx < 0 ? 0 : run.idx;
+  const base = pal[i % pal.length], round = Math.floor(i / pal.length) % 3;
+  if (round === 0) return base;
+  return mix(base, state.theme === 'light' ? '#000000' : '#ffffff', round === 1 ? 0.35 : 0.6);
+}
+function mix(a, b, t) {
+  const pa = hex(a), pb = hex(b);
+  return '#' + pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0')).join('');
+}
+function hex(h) { return [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); }
+function natCmp(a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); }
+const collator = natCmp;
+
+// worker
+const worker = new Worker(URL.createObjectURL(new Blob(['(' + workerMain.toString() + ')()'], { type: 'text/javascript' })));
+worker.onerror = e => report('error', 'worker: ' + e.message);
+let layoutTimer = null, sidebarTimer = null;
+const dirtyTags = new Set();
+worker.onmessage = (e) => {
+  const m = e.data;
+  switch (m.type) {
+    case 'runs': rootProblem = false; assignColors(m.runs); for (const n of m.runs) getRun(n); queueSidebar(); queueLayout(); break;
+    case 'scalar': {
+      const run = getRun(m.run);
+      let s = run.scalars.get(m.tag);
+      if (!s) { s = { kind: 'scalar', run, tag: m.tag, n: 0, steps: new Float64Array(0), values: new Float64Array(0), walls: new Float64Array(0), version: 0, sm: null }; run.scalars.set(m.tag, s); queueLayout(); }
+      appendScalar(s, m.truncateTo, m.steps, m.values, m.walls);
+      run.version++;
+      if (s.n) { run.lastStep = Math.max(run.lastStep, s.steps[s.n - 1]); run.lastWall = Math.max(run.lastWall, s.walls[s.n - 1]); }
+      dirtyTags.add(tagKey('scalar', m.tag)); queueSidebar();
+      break;
+    }
+    case 'hist': case 'text': {
+      const run = getRun(m.run), map = m.type === 'hist' ? run.hists : run.texts;
+      let s = map.get(m.tag);
+      if (!s) { s = { kind: m.type, run, tag: m.tag, items: [], version: 0 }; map.set(m.tag, s); queueLayout(); }
+      s.items.length = Math.min(s.items.length, m.truncateTo); s.items.push(...m.items); s.version++; run.version++;
+      if (s.items.length) run.lastStep = Math.max(run.lastStep, s.items[s.items.length - 1].step);
+      dirtyTags.add(tagKey(m.type, m.tag) + ' ' + m.run); queueSidebar();
+      break;
+    }
+    case 'reset': { const run = getRun(m.run); run.scalars.clear(); run.hists.clear(); run.texts.clear(); run.lastStep = -Infinity; run.version++; queueLayout(); break; }
+    case 'runstat': { const run = getRun(m.run); run.warnings = m.warnings; run.ignored = m.ignored; run.bytes = m.bytes; queueSidebar(); break; }
+    case 'progress': onProgress(m); break;
+    case 'rootError': showRootError(m); break;
+    case 'rootEmpty': showRootEmpty(m); break;
+    case 'netError': setFresh('bad', 'server unreachable, retrying'); break;
+    case 'log': report(m.level, m.msg); break;
+  }
+  if (dirtyTags.size && !renderQueued) requestRender();
+};
+function appendScalar(s, trunc, steps, values, walls) {
+  const keep = Math.min(s.n, trunc), n = keep + steps.length;
+  if (n > s.steps.length) {
+    const cap = Math.max(n, s.steps.length * 2, 256);
+    const g = (a) => { const b = new Float64Array(cap); b.set(a.subarray(0, keep)); return b; };
+    s.steps = g(s.steps); s.values = g(s.values); s.walls = g(s.walls);
+  }
+  s.steps.set(steps, keep); s.values.set(values, keep); s.walls.set(walls, keep);
+  if (keep < s.n) s.sm = null; // truncation invalidates the smoothing cache
+  s.n = n; s.version++;
+}
+function tagKey(kind, tag) { return kind === 'scalar' ? tag : kind + ':' + tag; }
+
+// ---- smoothing (debiased EMA, TensorBoard's formula), cached and extended incrementally
+function smoothed(s, w) {
+  if (w <= 0) return s.values;
+  let c = s.sm;
+  if (!c || c.w !== w || c.n > s.n) { c = s.sm = { w, n: 0, last: 0, num: 0, arr: new Float64Array(s.steps.length) }; }
+  if (c.arr.length < s.steps.length) { const b = new Float64Array(s.steps.length); b.set(c.arr.subarray(0, c.n)); c.arr = b; }
+  for (let i = c.n; i < s.n; i++) {
+    const v = s.values[i];
+    if (!Number.isFinite(v)) { c.arr[i] = NaN; continue; }
+    c.last = c.last * w + (1 - w) * v; c.num++;
+    c.arr[i] = c.last / (1 - Math.pow(w, c.num));
+  }
+  c.n = s.n;
+  return c.arr;
+}
+
+// ---- formatting ----------------------------------------------------------------
+function fmtSI(v, digits) {
+  const a = Math.abs(v);
+  if (a >= 1e15) return v.toExponential(Math.max(0, digits));
+  const units = [[1e12, 'T'], [1e9, 'G'], [1e6, 'M'], [1e3, 'k']];
+  for (const [m, u] of units) if (a >= m) return trimZero((v / m).toFixed(digits)) + u;
+  return trimZero(v.toFixed(digits));
+}
+function trimZero(s) { return s.includes('.') ? s.replace(/\.?0+$/, '') : s; }
+function fmtTicks(ticks, step, si) {
+  const maxAbs = Math.max(...ticks.map(Math.abs));
+  if (maxAbs === 0) return ticks.map(() => '0');
+  if (maxAbs >= 1e4 && maxAbs < 1e9 && si) {
+    const unit = maxAbs >= 1e6 ? 1e6 : 1e3;
+    const d = Math.max(0, Math.ceil(-Math.log10(step / unit) - 1e-9));
+    return ticks.map(t => fmtSI(t, d));
+  }
+  if (maxAbs >= 1e5 || maxAbs < 1e-3) {
+    const e = Math.floor(Math.log10(maxAbs)), d = Math.max(0, Math.ceil(e - Math.log10(step) - 1e-9));
+    return ticks.map(t => t === 0 ? '0' : trimZero((t / Math.pow(10, e)).toFixed(d)) + 'e' + e);
+  }
+  const d = Math.max(0, Math.ceil(-Math.log10(step) - 1e-9));
+  return ticks.map(t => { const s = t.toFixed(d); return s === '-0' ? '0' : s; });
+}
+function fmtVal(v) {
+  if (!Number.isFinite(v)) return String(v);
+  const a = Math.abs(v);
+  if (a === 0) return '0';
+  if (a >= 1e6 || a < 1e-4) return v.toExponential(3);
+  if (a >= 1000) return v.toFixed(a >= 1e5 ? 0 : 1);
+  return trimZero(v.toPrecision(5));
+}
+function fmtStep(v) { return Number.isInteger(v) ? v.toLocaleString() : fmtVal(v); }
+function fmtDur(sec, short) {
+  if (!Number.isFinite(sec)) return '';
+  const neg = sec < 0; sec = Math.abs(sec);
+  let out;
+  if (sec < 60) out = trimZero(sec.toFixed(sec < 10 ? 1 : 0)) + 's';
+  else if (sec < 3600) { const m = Math.floor(sec / 60), s = Math.round(sec % 60); out = short || !s ? `${m}m` : `${m}m${s}s`; }
+  else if (sec < 86400) { const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60); out = m ? `${h}h${m}m` : `${h}h`; }
+  else { const d = Math.floor(sec / 86400), h = Math.round((sec % 86400) / 3600); out = h ? `${d}d${h}h` : `${d}d`; }
+  return (neg ? '-' : '') + out;
+}
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function p2(n) { return String(n).padStart(2, '0'); }
+function fmtClock(sec, span) {
+  const d = new Date(sec * 1000);
+  const hm = `${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  if (span < 120) return hm + ':' + p2(d.getSeconds());
+  if (span < 86400) return hm;
+  if (span < 3 * 86400) return d.getHours() === 0 && d.getMinutes() === 0 ? `${MONTHS[d.getMonth()]} ${d.getDate()}` : hm;
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
+function fmtDate(sec) { const d = new Date(sec * 1000); return `${MONTHS[d.getMonth()]} ${d.getDate()} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`; }
+function fmtBytes(b) { return b >= 1e9 ? (b / 1e9).toFixed(2) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : b >= 1e3 ? (b / 1e3).toFixed(0) + ' kB' : b + ' B'; }
+
+// ---- ticks ---------------------------------------------------------------------------
+function linTicks(lo, hi, n) {
+  const span = hi - lo;
+  if (!(span > 0) || !Number.isFinite(span)) return { ticks: [lo], step: 1 };
+  const raw = span / Math.max(1, n), mag = Math.pow(10, Math.floor(Math.log10(raw))), e = raw / mag;
+  const step = mag * (e >= 7 ? 10 : e >= 3 ? 5 : e >= 1.5 ? 2 : 1);
+  const ticks = []; for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + step * 1e-9; v += step) ticks.push(Math.abs(v) < step * 1e-9 ? 0 : v);
+  return { ticks, step };
+}
+function logTicks(lo, hi) {
+  const a = Math.floor(Math.log10(lo)), b = Math.ceil(Math.log10(hi));
+  const decades = b - a; const ticks = [], minor = [];
+  if (decades <= 3) { for (let e = a; e <= b; e++) for (const m of [1, 2, 5]) { const v = m * Math.pow(10, e); if (v >= lo / 1.0001 && v <= hi * 1.0001) (m === 1 ? ticks : minor).push(v); } }
+  else { const st = Math.ceil(decades / 6); for (let e = a; e <= b; e += st) { const v = Math.pow(10, e); if (v >= lo / 1.0001 && v <= hi * 1.0001) ticks.push(v); } }
+  return { ticks, minor };
+}
+function fmtLog(v) { const a = Math.abs(v); if (a >= 1e-3 && a < 1e4) return trimZero(v.toPrecision(3)); const e = Math.floor(Math.log10(a) + 1e-9), m = v / Math.pow(10, e); return (Math.abs(m - 1) < 1e-6 ? '' : trimZero(m.toFixed(1))) + '1e' + e; }
+const TIME_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400, 172800, 604800, 1209600, 2592000];
+function timeTicks(lo, hi, n, align) {
+  const span = hi - lo; if (!(span > 0)) return { ticks: [lo], step: 1 };
+  let step = TIME_STEPS.find(s => span / s <= n); if (!step) step = Math.ceil(span / n / 2592000) * 2592000;
+  const off = align ? -new Date(lo * 1000).getTimezoneOffset() * 60 : 0;
+  const ticks = []; for (let v = Math.ceil((lo - off) / step) * step + off; v <= hi; v += step) ticks.push(v);
+  return { ticks, step };
+}
+
+// ---- UI: header / freshness ---------------------------------------------------
+let lastUpdate = 0, progress = { phase: 'listing' }, rootProblem = false;
+function setFresh(cls, text) { $('#dot').className = 'dot ' + (cls || ''); $('#freshText').textContent = text; }
+function onProgress(m) {
+  progress = m;
+  if (m.phase === 'listing') setFresh('busy', m.dirs ? `listing ${m.dirs} directories` : 'listing');
+  else if (m.phase === 'reading') setFresh('busy', `reading ${m.done}/${m.total} files${m.bytes ? ', ' + fmtBytes(m.bytes) : ''}`);
+  else { if (m.error) setFresh('bad', m.error); else if (!rootProblem) { lastUpdate = Date.now(); tickFresh(); } }
+}
+function tickFresh() {
+  if (progress.phase !== 'idle' || progress.error || rootProblem) return;
+  const s = Math.round((Date.now() - lastUpdate) / 1000);
+  let total = 0; for (const r of runs.values()) total += r.bytes;
+  setFresh('', `updated ${s < 2 ? 'just now' : s < 60 ? s + 's ago' : fmtDur(s, true) + ' ago'}`);
+  $('#dot').title = $('#freshText').title = `${fmtBytes(total)} of event data in ${runs.size} runs`;
+}
+setInterval(tickFresh, 1000);
+$('#refreshBtn').addEventListener('click', () => worker.postMessage({ type: 'refresh' }));
+$('#refreshSel').addEventListener('change', e => { state.r = +e.target.value; worker.postMessage({ type: 'interval', intervalMs: state.r * 1000 }); saveState(); });
+$('#themeBtn').addEventListener('click', () => { state.theme = state.theme === 'dark' ? 'light' : 'dark'; applyTheme(); saveState(); });
+function applyTheme() {
+  document.documentElement.dataset.theme = state.theme;
+  $('#themeBtn').textContent = state.theme === 'dark' ? 'light' : 'dark';
+  for (const li of $('#runs').children) { const r = runs.get(li.dataset.run); if (r) li.style.setProperty('--c', runColor(r)); }
+  for (const c of cards.values()) markDirty(c);
+  requestRender();
+}
+
+// ---- UI: sidebar ------------------------------------------------------------------
+let runRegex = null, hoverRun = null;
+function isSelected(name) { return !state.runs || state.runs.includes(name); }
+function selectedRuns() { return [...runs.values()].filter(r => isSelected(r.name) && matches(runRegex, r.name)).sort((a, b) => natCmp(a.name, b.name)); }
+function matches(re, s) { return !re || re.test(s); }
+function queueSidebar() { if (!sidebarTimer) sidebarTimer = setTimeout(() => { sidebarTimer = null; renderSidebar(); }, 150); }
+function renderSidebar() {
+  const ul = $('#runs');
+  const names = [...runs.keys()].sort(natCmp);
+  const existing = new Map([...ul.children].map(li => [li.dataset.run, li]));
+  let visible = 0;
+  for (const name of names) {
+    const r = runs.get(name);
+    let li = existing.get(name);
+    if (!li) {
+      li = document.createElement('li'); li.dataset.run = name; li.tabIndex = 0; li.setAttribute('role', 'checkbox');
+      li.innerHTML = '<span class="sw"></span><span class="name"><span class="a"></span><span class="b"></span></span><span class="warn" hidden>⚠</span><span class="meta num"></span>';
+      const cut = name.lastIndexOf('/') + 1;
+      li.querySelector('.name .a').textContent = name.slice(0, cut); li.querySelector('.name .b').textContent = name.slice(cut);
+      li.addEventListener('click', e => toggleRun(name, e.altKey));
+      li.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleRun(name, e.altKey); } });
+      li.addEventListener('dblclick', e => { if (e.target.classList.contains('sw')) { e.stopPropagation(); r.idx++; state.colors[name] = r.idx; li.style.setProperty('--c', runColor(r)); for (const c of cards.values()) markDirty(c); requestRender(); saveState(); } });
+      li.addEventListener('mouseenter', () => setHoverRun(name));
+      li.addEventListener('mouseleave', () => setHoverRun(null));
+    }
+    existing.delete(name);
+    const on = isSelected(name), shown = matches(runRegex, name);
+    li.classList.toggle('off', !on); li.setAttribute('aria-checked', String(on)); li.hidden = !shown; if (shown) visible++;
+    li.style.setProperty('--c', runColor(r));
+    const meta = li.querySelector('.meta');
+    meta.textContent = Number.isFinite(r.lastStep) ? fmtSI(r.lastStep, r.lastStep >= 1e4 ? 1 : 0) : '';
+    const ign = Object.entries(r.ignored).map(([k, v]) => `${v} ${k} summaries not shown`).join('\n');
+    li.title = `${name}\n${r.scalars.size} scalar, ${r.hists.size} histogram, ${r.texts.size} text tags · ${fmtBytes(r.bytes)}${Number.isFinite(r.lastStep) ? '\nlast step ' + fmtStep(r.lastStep) : ''}${r.lastWall ? '\nlast write ' + fmtDate(r.lastWall) : ''}${ign ? '\n' + ign : ''}${r.warnings.length ? '\n\n' + r.warnings.join('\n') : ''}\n\nclick: toggle · alt-click: only this run · double-click swatch: change colour`;
+    const w = li.querySelector('.warn'); w.hidden = !r.warnings.length;
+    ul.appendChild(li);
+  }
+  for (const li of existing.values()) li.remove();
+  const sel = selectedRuns().length;
+  $('#runCount').textContent = names.length ? `${sel}/${names.length}` : '';
+}
+function toggleRun(name, solo) {
+  const all = [...runs.keys()];
+  if (solo) state.runs = [name];
+  else {
+    const cur = new Set(state.runs || all);
+    if (cur.has(name)) cur.delete(name); else cur.add(name);
+    state.runs = cur.size === all.length && all.every(n => cur.has(n)) ? null : [...cur];
+  }
+  onRunsChanged();
+}
+function onRunsChanged() { saveState(); renderSidebar(); queueLayout(true); }
+$('.runtools').addEventListener('click', e => {
+  const act = e.target.dataset.act; if (!act) return;
+  const all = [...runs.keys()], shown = all.filter(n => matches(runRegex, n));
+  if (act === 'all') state.runs = null;
+  else if (act === 'none') state.runs = state.runs ? state.runs.filter(n => !shown.includes(n)) : all.filter(n => !shown.includes(n));
+  else { const cur = new Set(state.runs || all); for (const n of shown) { if (cur.has(n)) cur.delete(n); else cur.add(n); } state.runs = [...cur]; }
+  if (state.runs && state.runs.length === all.length) state.runs = null;
+  onRunsChanged();
+});
+$('#runFilter').addEventListener('input', e => {
+  const v = e.target.value;
+  try { runRegex = v ? new RegExp(v, 'i') : null; e.target.classList.remove('bad'); } catch { e.target.classList.add('bad'); return; }
+  renderSidebar(); queueLayout(true);
+});
+function setHoverRun(name) {
+  if (hoverRun === name) return; hoverRun = name;
+  for (const li of $('#runs').children) li.classList.toggle('hl', li.dataset.run === name);
+  for (const c of cards.values()) if (c.kind === 'scalar') { markDirty(c); }
+  requestRender();
+}
+
+// ---- UI: display controls ---------------------------------------------------------
+function segInit(id, key, parse, after) {
+  const el = $(id);
+  const sync = () => { for (const b of el.children) b.setAttribute('aria-pressed', String(String(state[key]) === b.dataset.v)); };
+  el.addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; state[key] = parse(b.dataset.v); sync(); saveState(); after(); });
+  sync(); return sync;
+}
+function allDirty() { for (const c of cards.values()) markDirty(c); requestRender(); }
+const syncX = segInit('#xmode', 'x', v => v, () => { for (const c of cards.values()) c.zoom = null; globalZoom = null; allDirty(); });
+const syncY = segInit('#ymode', 'y', v => v, () => { for (const c of cards.values()) { c.log = null; syncCardActs(c); } allDirty(); });
+const syncCols = segInit('#cols', 'cols', v => +v, () => { $('#main').dataset.cols = state.cols || ''; });
+$('#smooth').addEventListener('input', e => { state.s = +e.target.value; $('#smoothVal').textContent = state.s.toFixed(2); saveState(); allDirty(); });
+$('#outliers').addEventListener('change', e => { state.o = e.target.checked; saveState(); allDirty(); });
+$('#sync').addEventListener('change', e => { state.sync = e.target.checked; saveState(); if (!state.sync) { globalZoom = null; } allDirty(); });
+$('#keep').addEventListener('change', e => { state.keep = e.target.checked; saveState(); worker.postMessage({ type: 'purge', purge: !state.keep }); });
+let tagRegex = null;
+$('#tagFilter').addEventListener('input', e => {
+  const v = e.target.value;
+  try { tagRegex = v ? new RegExp(v, 'i') : null; e.target.classList.remove('bad'); } catch { e.target.classList.add('bad'); return; }
+  state.tags = v; saveState(); queueLayout(true);
+});
+
+// ---- layout: groups and cards ----------------------------------------------------
+const cards = new Map(); // key -> card
+let globalZoom = null;
+function queueLayout(now) { clearTimeout(layoutTimer); layoutTimer = setTimeout(layout, now ? 0 : 200); }
+function layout() {
+  layoutTimer = null;
+  const content = $('#content');
+  const sel = selectedRuns();
+  if (!runs.size) return; // still discovering; the state card is shown by progress/rootError
+  if (content.querySelector('.state')) content.innerHTML = '';
+  // collect visible entries
+  const entries = []; // {key, kind, tag, run|null, group}
+  const scalarTags = new Map(); // tag -> runs
+  for (const r of sel) {
+    for (const tag of r.scalars.keys()) if (matches(tagRegex, tag)) { if (!scalarTags.has(tag)) scalarTags.set(tag, []); scalarTags.get(tag).push(r); }
+    for (const tag of r.hists.keys()) if (matches(tagRegex, tag)) entries.push({ key: tagKey('hist', tag) + ' ' + r.name, kind: 'hist', tag, run: r });
+    for (const tag of r.texts.keys()) if (matches(tagRegex, tag)) entries.push({ key: tagKey('text', tag) + ' ' + r.name, kind: 'text', tag, run: r });
+  }
+  for (const [tag, rs] of scalarTags) entries.push({ key: tag, kind: 'scalar', tag, runs: rs });
+  let totalTags = 0; for (const r of sel) totalTags += r.scalars.size + r.hists.size + r.texts.size;
+  $('#tagHint').textContent = tagRegex ? `${entries.length} of ${totalTags} shown` : '';
+  // group
+  const groups = new Map();
+  for (const e of entries) {
+    const pinned = state.pin.includes(e.key);
+    const g = pinned ? ' pinned' : (e.tag.includes('/') ? e.tag.slice(0, e.tag.indexOf('/')) : '');
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(e);
+  }
+  const order = [...groups.keys()].sort((a, b) => a === ' pinned' ? -1 : b === ' pinned' ? 1 : natCmp(a, b));
+  const seen = new Set();
+  let sectionIdx = 0;
+  for (const g of order) {
+    const list = groups.get(g).sort((a, b) => natCmp(a.tag, b.tag) || natCmp(a.run ? a.run.name : '', b.run ? b.run.name : ''));
+    let sec = content.querySelector(`section[data-group="${cssEsc(g)}"]`);
+    if (!sec) {
+      sec = document.createElement('section'); sec.className = 'group'; sec.dataset.group = g;
+      sec.innerHTML = '<h3><span class="chev"></span><span class="gname"></span><span class="count"></span></h3><div class="grid"></div>';
+      sec.querySelector('h3').addEventListener('click', () => { sec.classList.toggle('closed'); const c = sec.classList.contains('closed'); state.closed = c ? [...new Set([...state.closed, g])] : state.closed.filter(x => x !== g); saveState(); if (!c) requestRender(); });
+      if (state.closed.includes(g)) sec.classList.add('closed');
+    }
+    sec.querySelector('.gname').textContent = g === ' pinned' ? 'Pinned' : (g || 'ungrouped');
+    sec.querySelector('.count').textContent = list.length;
+    const grid = sec.querySelector('.grid');
+    let cursor = grid.firstChild;
+    for (const e of list) {
+      let card = cards.get(e.key);
+      if (!card) { card = createCard(e); cards.set(e.key, card); }
+      card.entry = e; seen.add(e.key);
+      if (card.el !== cursor) grid.insertBefore(card.el, cursor); else cursor = cursor.nextSibling;
+      updateCardTitle(card);
+      markDirty(card);
+    }
+    while (cursor) { const nx = cursor.nextSibling; cursor.remove(); cursor = nx; }
+    if (content.children[sectionIdx] !== sec) content.insertBefore(sec, content.children[sectionIdx] || null);
+    sectionIdx++;
+  }
+  while (content.children.length > sectionIdx) content.lastChild.remove();
+  for (const [k, c] of cards) if (!seen.has(k)) { c.el.remove(); io.unobserve(c.plot || c.el); ro.unobserve(c.plot || c.el); cards.delete(k); }
+  if (!entries.length) {
+    const div = document.createElement('div'); div.className = 'empty';
+    if (!sel.length) { div.textContent = runs.size ? 'No runs selected.' : 'No runs found.'; if (runs.size) { const b = document.createElement('button'); b.textContent = 'select all runs'; b.onclick = () => { state.runs = null; $('#runFilter').value = ''; runRegex = null; onRunsChanged(); }; div.appendChild(b); } }
+    else if (tagRegex) div.textContent = 'No tags match the filter.';
+    else div.textContent = 'The selected runs have no scalar, histogram or text summaries yet.';
+    content.appendChild(div);
+  }
+  requestRender();
+}
+function cssEsc(s) { return s.replace(/["\\ ]/g, c => '\\' + c.charCodeAt(0).toString(16) + ' '); }
+
+const io = new IntersectionObserver(es => { for (const e of es) { const c = e.target._card; if (!c) continue; c.visible = e.isIntersecting; if (c.visible && c.dirty) requestRender(); } }, { root: $('#main'), rootMargin: '200px' });
+const ro = new ResizeObserver(es => { for (const e of es) { const c = e.target._card; if (!c) continue; c.w = e.contentRect.width; c.h = e.contentRect.height; markDirty(c); } requestRender(); });
+
+function createCard(e) {
+  const el = document.createElement('div'); el.className = 'card'; el.tabIndex = 0;
+  const card = { el, key: e.key, kind: e.kind, entry: e, dirty: true, visible: false, zoom: null, log: null, w: 0, h: 0 };
+  const head = document.createElement('div'); head.className = 'head';
+  head.innerHTML = `<span class="title"></span><span class="acts">${e.kind === 'scalar' ? '<button class="logb txt" title="log y axis for this chart" aria-label="Log y axis" aria-pressed="false">log</button><button class="csv" title="Download visible data as CSV" aria-label="Download CSV">' + SVG.csv + '</button>' : ''}<button class="big" title="Expand" aria-label="Expand" aria-pressed="false">${SVG.expand}</button><button class="pin" title="Pin to top" aria-label="Pin" aria-pressed="false">${SVG.pin}</button></span>`;
+  el.appendChild(head);
+  head.querySelector('.pin').addEventListener('click', () => { const i = state.pin.indexOf(card.key); if (i >= 0) state.pin.splice(i, 1); else state.pin.push(card.key); saveState(); syncCardActs(card); queueLayout(true); });
+  head.querySelector('.big').addEventListener('click', () => { el.classList.toggle('big'); syncCardActs(card); });
+  if (e.kind === 'scalar') {
+    head.querySelector('.logb').addEventListener('click', () => { const cur = card.log != null ? card.log : state.y === 'log'; card.log = !cur; if (card.log === (state.y === 'log')) card.log = null; syncCardActs(card); markDirty(card); requestRender(); });
+    head.querySelector('.csv').addEventListener('click', () => downloadCsv(card));
+    const plot = document.createElement('div'); plot.className = 'plot';
+    plot.innerHTML = '<canvas class="data"></canvas><canvas class="ov"></canvas><div class="note"></div><div class="tip"></div>';
+    el.appendChild(plot);
+    card.plot = plot; card.cv = plot.querySelector('.data'); card.ov = plot.querySelector('.ov'); card.tip = plot.querySelector('.tip'); card.note = plot.querySelector('.note');
+    plot._card = card; io.observe(plot); ro.observe(plot);
+    bindPlotEvents(card);
+  } else if (e.kind === 'hist') {
+    const plot = document.createElement('div'); plot.className = 'plot';
+    plot.innerHTML = '<canvas class="data"></canvas><canvas class="ov"></canvas><div class="note"></div><div class="tip"></div>';
+    el.appendChild(plot);
+    card.plot = plot; card.cv = plot.querySelector('.data'); card.ov = plot.querySelector('.ov'); card.tip = plot.querySelector('.tip'); card.note = plot.querySelector('.note');
+    plot._card = card; io.observe(plot); ro.observe(plot);
+    bindHistEvents(card);
+  } else {
+    const body = document.createElement('div'); body.className = 'textbody'; el.appendChild(body);
+    const nav = document.createElement('div'); nav.className = 'textnav'; nav.innerHTML = '<input type="range" min="0" max="0" value="0" aria-label="Step"><span class="num"></span>'; el.appendChild(nav);
+    card.body = body; card.slider = nav.querySelector('input'); card.stepLabel = nav.querySelector('span'); card.atEnd = true;
+    card.slider.addEventListener('input', () => { card.atEnd = +card.slider.value === +card.slider.max; renderText(card); });
+    el._card = card; io.observe(el); card.visible = true;
+  }
+  syncCardActs(card);
+  return card;
+}
+function syncCardActs(card) {
+  const pin = card.el.querySelector('.pin'); pin.setAttribute('aria-pressed', String(state.pin.includes(card.key))); pin.title = state.pin.includes(card.key) ? 'Unpin' : 'Pin to top';
+  const big = card.el.querySelector('.big'); big.setAttribute('aria-pressed', String(card.el.classList.contains('big'))); big.title = card.el.classList.contains('big') ? 'Shrink' : 'Expand';
+  const lb = card.el.querySelector('.logb'); if (lb) lb.setAttribute('aria-pressed', String(isLog(card)));
+}
+function isLog(card) { return card.log != null ? card.log : state.y === 'log'; }
+function updateCardTitle(card) {
+  const t = card.el.querySelector('.title'); const tag = card.entry.tag;
+  const i = tag.indexOf('/');
+  t.textContent = '';
+  if (i >= 0 && !state.pin.includes(card.key)) { const pre = document.createElement('span'); pre.className = 'pre'; pre.textContent = tag.slice(0, i + 1); t.appendChild(pre); t.appendChild(document.createTextNode(tag.slice(i + 1))); }
+  else t.appendChild(document.createTextNode(tag));
+  if (card.entry.run) { const r = document.createElement('span'); r.className = 'run'; r.textContent = '  ' + card.entry.run.name; t.appendChild(r); }
+  t.title = tag + (card.entry.run ? ' · ' + card.entry.run.name : '');
+}
+function markDirty(card) { card.dirty = true; }
+let renderQueued = false;
+function requestRender() { if (renderQueued) return; renderQueued = true; requestAnimationFrame(renderAll); }
+function renderAll() {
+  renderQueued = false;
+  if (dirtyTags.size) {
+    for (const c of cards.values()) if (dirtyTags.has(c.key) || (c.kind === 'scalar' && dirtyTags.has(c.key))) markDirty(c);
+    dirtyTags.clear();
+  }
+  const t0 = performance.now();
+  for (const c of cards.values()) {
+    if (!c.dirty || !c.visible) continue;
+    try { if (c.kind === 'scalar') drawScalar(c); else if (c.kind === 'hist') drawHist(c); else renderText(c); }
+    catch (err) { console.error(`render ${c.key}:`, err); }
+    c.dirty = false;
+    if (performance.now() - t0 > 40) { requestRender(); break; } // yield to keep the page responsive
+  }
+}
+
+// ---- scalar chart ------------------------------------------------------------------
+const M = { l: 6, r: 10, t: 8, b: 20 };
+const FONT = '11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+function xOf(s, i, mode) { return mode === 'step' ? s.steps[i] : mode === 'rel' ? s.walls[i] - s.walls[0] : s.walls[i]; }
+function xArray(s, mode) {
+  if (mode === 'step') return s.steps;
+  const k = mode + s.version; if (s.xcache && s.xcache.k === k) return s.xcache.arr;
+  const arr = new Float64Array(s.n); const w0 = s.walls[0];
+  for (let i = 0; i < s.n; i++) arr[i] = mode === 'rel' ? s.walls[i] - w0 : s.walls[i];
+  s.xcache = { k, arr }; return arr;
+}
+function lowerBound(a, n, x) { let lo = 0, hi = n; while (lo < hi) { const m = (lo + hi) >> 1; if (a[m] < x) lo = m + 1; else hi = m; } return lo; }
+function isSorted(a, n) { for (let i = 1; i < n; i++) if (a[i] < a[i - 1]) return false; return true; }
+// per-pixel-column downsample; returns {idx:Int32Array} of indices to draw, in order
+function downsample(xs, ys, i0, i1, x0, x1, width) {
+  const count = i1 - i0;
+  if (count <= width * 2) { const idx = new Int32Array(count); for (let i = 0; i < count; i++) idx[i] = i0 + i; return idx; }
+  const out = []; const scale = width / (x1 - x0);
+  let col = -1, first = -1, last = -1, mn = -1, mx = -1;
+  const emit = () => { if (first < 0) return; const a = [first]; if (mn !== first && mn !== last) a.push(mn); if (mx !== first && mx !== last && mx !== mn) a.push(mx); a.sort((p, q) => p - q); if (last !== first) a.push(last); for (const k of a) out.push(k); };
+  for (let i = i0; i < i1; i++) {
+    const y = ys[i]; if (y !== y) continue; // NaN
+    const c = Math.floor((xs[i] - x0) * scale);
+    if (c !== col) { emit(); col = c; first = mn = mx = last = i; }
+    else { last = i; if (y < ys[mn]) mn = i; if (y > ys[mx]) mx = i; }
+  }
+  emit();
+  return Int32Array.from(out);
+}
+function percentile(sorted, p) { if (!sorted.length) return NaN; const k = (sorted.length - 1) * p, lo = Math.floor(k), hi = Math.ceil(k); return sorted[lo] + (sorted[hi] - sorted[lo]) * (k - lo); }
+function setupCanvas(card, cv) {
+  const dpr = window.devicePixelRatio || 1, w = Math.max(10, Math.round(card.w)), h = Math.max(10, Math.round(card.h));
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); return { ctx, w, h };
+}
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function drawScalar(card) {
+  const { ctx, w, h } = setupCanvas(card, card.cv);
+  ctx.clearRect(0, 0, w, h);
+  const runsHere = card.entry.runs, mode = state.x, log = isLog(card), sw = state.s;
+  const ph = h - M.t - M.b;
+  const zoom = state.sync ? globalZoom : card.zoom;
+  const series = [];
+  let x0 = Infinity, x1 = -Infinity;
+  for (const r of runsHere) {
+    const s = r.scalars.get(card.entry.tag); if (!s || !s.n) continue;
+    const xs = xArray(s, mode);
+    const sorted = mode === 'step' ? true : isSorted(xs, s.n);
+    let lo, hi;
+    if (sorted) { lo = xs[0]; hi = xs[s.n - 1]; } else { lo = Infinity; hi = -Infinity; for (let i = 0; i < s.n; i++) { if (xs[i] < lo) lo = xs[i]; if (xs[i] > hi) hi = xs[i]; } }
+    series.push({ r, s, xs, sorted, lo, hi });
+    if (!zoom) { if (lo < x0) x0 = lo; if (hi > x1) x1 = hi; }
+  }
+  if (zoom) { x0 = zoom[0]; x1 = zoom[1]; }
+  card.render = null; card.note.textContent = '';
+  if (!series.length) { text(ctx, 'no data', w / 2, h / 2, 'center', css('--ink-3')); return; }
+  if (!(x1 > x0)) { x0 -= 0.5; x1 += 0.5; }
+  // downsample (against a provisional width; the left margin only depends on the y labels) and collect y values
+  const pwGuess = w - 40 - M.r;
+  const allSm = [], allRaw = [];
+  let skipped = 0;
+  for (const S of series) {
+    const { s, xs } = S;
+    let i0 = 0, i1 = s.n;
+    if (S.sorted) { i0 = Math.max(0, lowerBound(xs, s.n, x0) - 1); i1 = Math.min(s.n, lowerBound(xs, s.n, x1) + 1); if (i1 < s.n && xs[i1] <= x1) i1++; }
+    const sm = smoothed(s, sw);
+    S.sm = sm;
+    S.idx = downsample(xs, sm, i0, i1, x0, x1, pwGuess);
+    S.idxRaw = sw > 0 ? downsample(xs, s.values, i0, i1, x0, x1, pwGuess) : S.idx;
+    for (const i of S.idx) { const v = sm[i]; if (Number.isFinite(v) && (!log || v > 0)) allSm.push(v); else if (log && Number.isFinite(v)) skipped++; }
+    for (const i of S.idxRaw) { const v = s.values[i]; if (Number.isFinite(v) && (!log || v > 0)) allRaw.push(v); }
+  }
+  let useLog = log;
+  if (log && !allRaw.length) { useLog = false; card.note.textContent = 'log axis unavailable: no positive values'; }
+  else if (log && skipped) card.note.textContent = `log axis: ${skipped} non-positive point${skipped > 1 ? 's' : ''} hidden`;
+  // y domain
+  allRaw.sort((a, b) => a - b);
+  let y0, y1;
+  if (state.o) { y0 = percentile(allRaw, 0.01); y1 = percentile(allRaw, 0.99); } else { y0 = allRaw[0]; y1 = allRaw[allRaw.length - 1]; }
+  if (sw > 0 && allSm.length) { let a = Infinity, b = -Infinity; for (const v of allSm) { if (v < a) a = v; if (v > b) b = v; } y0 = Math.min(y0, a); y1 = Math.max(y1, b); }
+  if (!Number.isFinite(y0) || !Number.isFinite(y1)) { y0 = 0; y1 = 1; }
+  if (useLog) { y0 = Math.log10(y0); y1 = Math.log10(y1); }
+  if (y1 - y0 < 1e-12 * Math.max(1, Math.abs(y0))) { const pad = useLog ? 0.5 : (Math.abs(y0) > 0 ? Math.abs(y0) * 0.1 : 1); y0 -= pad; y1 += pad; }
+  else { const pad = (y1 - y0) * 0.06; y0 -= pad; y1 += pad; }
+  // y ticks first: their width sets the left margin
+  ctx.font = FONT;
+  const yTickN = Math.max(2, Math.floor(ph / 42));
+  let yTicks = [];
+  if (useLog) { const { ticks, minor } = logTicks(Math.pow(10, y0), Math.pow(10, y1)); yTicks = ticks.map(v => [Math.log10(v), fmtLog(v)]); for (const v of minor) yTicks.push([Math.log10(v), fmtLog(v), true]); }
+  else { const { ticks, step } = linTicks(y0, y1, yTickN); const labels = fmtTicks(ticks, step, true); yTicks = ticks.map((v, i) => [v, labels[i]]); }
+  let maxW = 0; for (const t of yTicks) maxW = Math.max(maxW, ctx.measureText(t[1]).width);
+  const ml = Math.ceil(maxW) + 12, pw = w - ml - M.r;
+  const sx = (x) => ml + (x - x0) / (x1 - x0) * pw;
+  const sy = useLog ? (v) => M.t + (y1 - Math.log10(v)) / (y1 - y0) * ph : (v) => M.t + (y1 - v) / (y1 - y0) * ph;
+  const syLin = (v) => M.t + (y1 - v) / (y1 - y0) * ph;
+  const gridC = css('--grid'), inkC = css('--ink-3');
+  ctx.lineWidth = 1; ctx.strokeStyle = gridC;
+  const yLabels = yTicks.map(([v, label, minor]) => [syLin(v), label, minor]);
+  for (const [py] of yLabels) { ctx.beginPath(); ctx.moveTo(ml, Math.round(py) + 0.5); ctx.lineTo(w - M.r, Math.round(py) + 0.5); ctx.stroke(); }
+  const xTickN = Math.max(2, Math.floor(pw / 80));
+  let xLabels = [];
+  if (mode === 'step') { const { ticks, step } = linTicks(x0, x1, xTickN); const labels = fmtTicks(ticks, step, true); xLabels = ticks.map((v, i) => [sx(v), labels[i]]); }
+  else { const { ticks } = timeTicks(x0, x1, xTickN, mode === 'wall'); xLabels = ticks.map(v => [sx(v), mode === 'rel' ? fmtDur(v, true) : fmtClock(v, x1 - x0)]); }
+  for (const [px] of xLabels) { ctx.beginPath(); ctx.moveTo(Math.round(px) + 0.5, M.t); ctx.lineTo(Math.round(px) + 0.5, M.t + ph); ctx.stroke(); }
+  ctx.strokeStyle = css('--axis'); ctx.beginPath(); ctx.moveTo(ml, M.t + ph + 0.5); ctx.lineTo(w - M.r, M.t + ph + 0.5); ctx.moveTo(ml + 0.5, M.t); ctx.lineTo(ml + 0.5, M.t + ph); ctx.stroke();
+  // lines
+  ctx.save(); ctx.beginPath(); ctx.rect(ml, M.t - 1, pw, ph + 2); ctx.clip();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  const dimOthers = hoverRun && runsHere.some(r => r.name === hoverRun);
+  const drawLine = (S, idx, ys, alpha, width) => {
+    ctx.globalAlpha = alpha; ctx.lineWidth = width; ctx.strokeStyle = runColor(S.r);
+    ctx.beginPath(); let pen = false;
+    for (let k = 0; k < idx.length; k++) {
+      const i = idx[k], v = ys[i];
+      if (!Number.isFinite(v) || (useLog && v <= 0)) { pen = false; continue; }
+      const px = sx(S.xs[i]), py = sy(v);
+      if (!pen) { ctx.moveTo(px, py); pen = true; } else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    if (idx.length === 1) { const i = idx[0]; if (Number.isFinite(ys[i])) { ctx.fillStyle = runColor(S.r); ctx.beginPath(); ctx.arc(sx(S.xs[i]), sy(ys[i]), 2.5, 0, 7); ctx.fill(); } }
+  };
+  for (const S of series) { const dim = dimOthers && S.r.name !== hoverRun; if (sw > 0) drawLine(S, S.idxRaw, S.s.values, dim ? 0.08 : 0.25, 1); }
+  for (const S of series) { const dim = dimOthers && S.r.name !== hoverRun; drawLine(S, S.idx, S.sm, dim ? 0.2 : 1, sw > 0 ? 1.8 : 1.5); }
+  ctx.globalAlpha = 1; ctx.restore();
+  // tick labels: y outside on the left, x below
+  ctx.fillStyle = inkC; ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
+  let lastY = Infinity;
+  for (const [py, label, minor] of yLabels) { if (py > M.t + ph + 1 || py < M.t - 1) continue; if (Math.abs(py - lastY) < 13) continue; lastY = py; ctx.globalAlpha = minor ? 0.6 : 1; ctx.fillText(label, ml - 5, py); }
+  ctx.globalAlpha = 1; ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+  let lastX = -Infinity;
+  for (const [px, label] of xLabels) { if (px < ml - 2 || px > w - M.r + 2) continue; const tw = ctx.measureText(label).width; if (px - tw / 2 < lastX + 8) continue; lastX = px + tw / 2; ctx.fillText(label, Math.min(Math.max(px, ml + tw / 2), w - M.r - tw / 2), M.t + ph + 4); }
+  card.render = { series, sx, sy, x0, x1, y0, y1, useLog, ml, pw, ph, w, h, mode, sw };
+  if (card.hoverX != null) drawHover(card, card.hoverX, card.hoverY);
+}
+function text(ctx, s, x, y, align, color) { ctx.font = '12px system-ui, sans-serif'; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y); }
+
+// ---- hover / zoom --------------------------------------------------------------
+let linkedX = null; // data x under the pointer, broadcast to other cards (same x mode)
+function bindPlotEvents(card) {
+  const plot = card.plot;
+  let drag = null;
+  plot.addEventListener('pointermove', e => {
+    const rc = plot.getBoundingClientRect(); const x = e.clientX - rc.left, y = e.clientY - rc.top;
+    if (drag) { drag.x1 = x; drawDrag(card, drag); return; }
+    card.hoverX = x; card.hoverY = y; drawHover(card, x, y);
+  });
+  plot.addEventListener('pointerleave', () => { card.hoverX = null; clearOverlay(card); card.tip.classList.remove('on'); broadcastX(null, card); markRunRow(null); });
+  plot.addEventListener('pointerdown', e => { if (e.button !== 0) return; const rc = plot.getBoundingClientRect(); drag = { x0: e.clientX - rc.left, x1: e.clientX - rc.left }; plot.setPointerCapture(e.pointerId); card.tip.classList.remove('on'); });
+  plot.addEventListener('pointerup', e => {
+    if (!drag) return; const d = drag; drag = null; plot.releasePointerCapture(e.pointerId);
+    if (Math.abs(d.x1 - d.x0) < 5 || !card.render) { clearOverlay(card); return; }
+    const R = card.render; const toX = (px) => R.x0 + (Math.min(Math.max(px, R.ml), R.w - M.r) - R.ml) / R.pw * (R.x1 - R.x0);
+    const z = [toX(Math.min(d.x0, d.x1)), toX(Math.max(d.x0, d.x1))];
+    setZoom(card, z);
+  });
+  plot.addEventListener('dblclick', () => setZoom(card, null));
+  card.el.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { setZoom(card, null); return; }
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const R = card.render; if (!R || !R.series.length) return;
+    e.preventDefault();
+    const S = R.series[0], idx = S.idx; if (!idx.length) return;
+    const px = card.hoverX != null ? card.hoverX : R.ml + R.pw / 2;
+    const xData = R.x0 + (px - R.ml) / R.pw * (R.x1 - R.x0);
+    let k = 0; while (k < idx.length - 1 && S.xs[idx[k]] < xData) k++;
+    if (Math.abs(S.xs[idx[k]] - xData) < 1e-9 || card.hoverX != null) k += e.key === 'ArrowRight' ? 1 : -1;
+    k = Math.max(0, Math.min(idx.length - 1, k));
+    const v = S.sm[idx[k]];
+    card.hoverX = R.sx(S.xs[idx[k]]); card.hoverY = Number.isFinite(v) ? R.sy(v) : R.h / 2;
+    drawHover(card, card.hoverX, card.hoverY);
+  });
+  card.el.addEventListener('blur', () => { if (card.hoverX != null && !card.plot.matches(':hover')) { card.hoverX = null; clearOverlay(card); card.tip.classList.remove('on'); broadcastX(null, card); markRunRow(null); } });
+}
+function setZoom(card, z) {
+  if (state.sync) { globalZoom = z; for (const c of cards.values()) if (c.kind === 'scalar') markDirty(c); }
+  else { card.zoom = z; markDirty(card); }
+  requestRender();
+}
+function clearOverlay(card) { const { ctx, w, h } = setupCanvas(card, card.ov); ctx.clearRect(0, 0, w, h); }
+function drawDrag(card, d) {
+  const { ctx, w, h } = setupCanvas(card, card.ov); ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = css('--sel-2'); const a = Math.min(d.x0, d.x1), b = Math.max(d.x0, d.x1); ctx.fillRect(a, M.t, b - a, h - M.t - M.b);
+  ctx.strokeStyle = css('--ink-3'); ctx.beginPath(); ctx.moveTo(a + 0.5, M.t); ctx.lineTo(a + 0.5, h - M.b); ctx.moveTo(b + 0.5, M.t); ctx.lineTo(b + 0.5, h - M.b); ctx.stroke();
+}
+function nearestIdx(S, xData) {
+  // nearest drawn index by x
+  const idx = S.idx; if (!idx.length) return -1;
+  let lo = 0, hi = idx.length - 1;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (S.xs[idx[m]] < xData) lo = m + 1; else hi = m; }
+  if (lo > 0 && Math.abs(S.xs[idx[lo - 1]] - xData) <= Math.abs(S.xs[idx[lo]] - xData)) lo--;
+  return idx[lo];
+}
+function drawHover(card, px, py) {
+  const R = card.render; if (!R) return;
+  const { ctx, w, h } = setupCanvas(card, card.ov); ctx.clearRect(0, 0, w, h);
+  if (px < R.ml || px > w - M.r) { card.tip.classList.remove('on'); broadcastX(null, card); return; }
+  const xData = R.x0 + (px - R.ml) / R.pw * (R.x1 - R.x0);
+  // snap: nearest point across series by pixel distance in x, tie-break by y
+  const rows = []; let best = null;
+  for (const S of R.series) {
+    const i = nearestIdx(S, xData); if (i < 0) continue;
+    const v = S.sm[i]; const x = S.xs[i]; const ppx = R.sx(x);
+    const ok = Number.isFinite(v) && (!R.useLog || v > 0);
+    const ppy = ok ? R.sy(v) : NaN;
+    const d = Math.abs(ppx - px) + (ok ? Math.abs(ppy - py) * 0.35 : 1e9);
+    rows.push({ S, i, v, raw: S.s.values[i], x, ppx, ppy, ok });
+    if (!best || d < best.d) best = { d, row: rows[rows.length - 1] };
+  }
+  if (!best) return;
+  const snapX = best.row.ppx;
+  // crosshair
+  ctx.strokeStyle = css('--ink-3'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(Math.round(snapX) + 0.5, M.t); ctx.lineTo(Math.round(snapX) + 0.5, h - M.b); ctx.stroke(); ctx.setLineDash([]);
+  for (const row of rows) {
+    if (!row.ok) continue;
+    ctx.fillStyle = runColor(row.S.r); ctx.strokeStyle = css('--card'); ctx.lineWidth = 2;
+    const r = row === best.row ? 4 : 3;
+    ctx.beginPath(); ctx.arc(row.ppx, row.ppy, r, 0, 7); ctx.fill(); ctx.stroke();
+  }
+  // tooltip
+  rows.sort((a, b) => (Number.isFinite(b.v) ? b.v : -Infinity) - (Number.isFinite(a.v) ? a.v : -Infinity));
+  const s0 = best.row.S.s, i0 = best.row.i;
+  const tip = card.tip; tip.innerHTML = '';
+  const th = document.createElement('div'); th.className = 'th num';
+  th.textContent = `step ${fmtStep(s0.steps[i0])} · ${fmtDur(s0.walls[i0] - s0.walls[0], true)} · ${fmtDate(s0.walls[i0])}`;
+  tip.appendChild(th);
+  const table = document.createElement('table');
+  const MAXROWS = 14; let shown = rows;
+  if (rows.length > MAXROWS) { const bi = rows.indexOf(best.row); const lo = Math.max(0, Math.min(bi - Math.floor(MAXROWS / 2), rows.length - MAXROWS)); shown = rows.slice(lo, lo + MAXROWS); }
+  for (const row of shown) {
+    const tr = document.createElement('tr'); if (row === best.row) tr.className = 'hl'; if (hoverRun && hoverRun !== row.S.r.name) tr.classList.add('dim');
+    const k = document.createElement('td'); k.className = 'k'; const i = document.createElement('i'); i.style.setProperty('--c', runColor(row.S.r)); k.appendChild(i);
+    const v = document.createElement('td'); v.className = 'v num'; v.textContent = fmtVal(row.v);
+    tr.appendChild(k); tr.appendChild(v);
+    if (R.sw > 0) { const rr = document.createElement('td'); rr.className = 'r num'; rr.textContent = fmtVal(row.raw); tr.appendChild(rr); }
+    const n = document.createElement('td'); n.className = 'n'; n.textContent = row.S.r.name; n.title = row.S.r.name;
+    if (row.S.s.steps[row.i] !== s0.steps[i0]) { n.textContent += ` @${fmtSI(row.S.s.steps[row.i], 1)}`; }
+    tr.appendChild(n); table.appendChild(tr);
+  }
+  tip.appendChild(table);
+  if (shown.length < rows.length) { const more = document.createElement('div'); more.className = 'th'; more.style.marginTop = '4px'; more.textContent = `${rows.length - shown.length} more run${rows.length - shown.length > 1 ? 's' : ''} not listed`; tip.appendChild(more); }
+  tip.classList.add('on');
+  const tw = tip.offsetWidth, thh = tip.offsetHeight;
+  let left = snapX + 12; if (left + tw > w - 4) left = snapX - 12 - tw; if (left < 4) left = 4;
+  let top = Math.min(Math.max(py - thh / 2, 4), h - thh - 4); if (top < 4) top = 4;
+  tip.style.left = left + 'px'; tip.style.top = top + 'px';
+  broadcastX(best.row.x, card);
+  markRunRow(best.row.S.r.name);
+}
+let markedRow = null;
+function markRunRow(name) {
+  if (markedRow === name) return; markedRow = name;
+  for (const li of $('#runs').children) li.classList.toggle('near', li.dataset.run === name);
+}
+function broadcastX(x, from) {
+  if (x === linkedX) return; linkedX = x;
+  for (const c of cards.values()) {
+    if (c === from || c.kind !== 'scalar' || !c.visible || !c.render) continue;
+    const { ctx, w, h } = setupCanvas(c, c.ov); ctx.clearRect(0, 0, w, h);
+    if (x == null || c.render.mode !== state.x) continue;
+    const px = c.render.sx(x); if (px < c.render.ml || px > w - M.r) continue;
+    ctx.strokeStyle = css('--ink-3'); ctx.globalAlpha = 0.5; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(Math.round(px) + 0.5, M.t); ctx.lineTo(Math.round(px) + 0.5, h - M.b); ctx.stroke(); ctx.globalAlpha = 1; ctx.setLineDash([]);
+  }
+}
+function downloadCsv(card) {
+  const R = card.render; if (!R) return;
+  const lines = ['run,tag,step,wall_time,value' + (R.sw > 0 ? ',smoothed' : '')];
+  for (const S of R.series) {
+    const { s } = S; let i0 = 0, i1 = s.n;
+    if (S.sorted) { i0 = lowerBound(S.xs, s.n, R.x0); i1 = lowerBound(S.xs, s.n, R.x1); if (i1 < s.n && S.xs[i1] <= R.x1) i1++; }
+    for (let i = i0; i < i1; i++) lines.push(`${q(S.r.name)},${q(s.tag)},${s.steps[i]},${s.walls[i]},${s.values[i]}${R.sw > 0 ? ',' + S.sm[i] : ''}`);
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = card.entry.tag.replace(/[^\w.-]+/g, '_') + '.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function q(s) { return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+
+// ---- histogram heatmap -------------------------------------------------------------
+const ROWS = 64;
+function drawHist(card) {
+  const { ctx, w, h } = setupCanvas(card, card.cv); ctx.clearRect(0, 0, w, h);
+  const s = card.entry.run.hists.get(card.entry.tag); card.render = null; card.note.textContent = '';
+  if (!s || !s.items.length) { text(ctx, 'no data', w / 2, h / 2, 'center', css('--ink-3')); return; }
+  const items = s.items.filter(it => it.counts.length);
+  if (!items.length) { text(ctx, 'empty histograms', w / 2, h / 2, 'center', css('--ink-3')); return; }
+  const ph = h - M.t - M.b;
+  // value range: robust across steps (ignore the extreme 0.5% of mass per histogram)
+  let v0 = Infinity, v1 = -Infinity;
+  for (const it of items) { const [a, b] = massRange(it, 0.005); if (a < v0) v0 = a; if (b > v1) v1 = b; }
+  if (!(v1 > v0)) { v0 -= 1; v1 += 1; }
+  const pad = (v1 - v0) * 0.04; v0 -= pad; v1 += pad;
+  const mode = state.x;
+  const xs = items.map(it => mode === 'step' ? it.step : mode === 'rel' ? it.wall - items[0].wall : it.wall);
+  let x0 = xs[0], x1 = xs[xs.length - 1]; if (!(x1 > x0)) { x0 -= 0.5; x1 += 0.5; }
+  ctx.font = FONT;
+  const { ticks, step } = linTicks(v0, v1, Math.max(2, Math.floor(ph / 42))); const labels = fmtTicks(ticks, step, true);
+  let maxW = 0; for (const l of labels) maxW = Math.max(maxW, ctx.measureText(l).width);
+  const ml = Math.ceil(maxW) + 12, pw = w - ml - M.r;
+  const sx = (x) => ml + (x - x0) / (x1 - x0) * pw;
+  const sy = (v) => M.t + (v1 - v) / (v1 - v0) * ph;
+  // column boundaries at midpoints between steps
+  const n = items.length, bounds = new Float64Array(n + 1);
+  bounds[0] = n > 1 ? xs[0] - (xs[1] - xs[0]) / 2 : x0 - 0.5; bounds[n] = n > 1 ? xs[n - 1] + (xs[n - 1] - xs[n - 2]) / 2 : x1 + 0.5;
+  for (let i = 1; i < n; i++) bounds[i] = (xs[i - 1] + xs[i]) / 2;
+  const xLo = bounds[0], xHi = bounds[n];
+  const sxb = (x) => ml + (x - xLo) / (xHi - xLo) * pw;
+  // per column density over ROWS rows, normalised per column
+  const dens = new Float32Array(n * ROWS);
+  for (let c = 0; c < n; c++) {
+    const it = items[c]; const off = c * ROWS; let mx = 0;
+    for (let b = 0; b < it.counts.length; b++) {
+      const lo = it.edges[b], hi = it.edges[b + 1], cnt = it.counts[b]; if (!(cnt > 0)) continue;
+      const width = hi - lo;
+      const r0 = Math.max(0, Math.floor((v1 - hi) / (v1 - v0) * ROWS)), r1 = Math.min(ROWS - 1, Math.floor((v1 - lo) / (v1 - v0) * ROWS));
+      if (width <= 0) { if (r0 < ROWS) dens[off + r0] += cnt; continue; }
+      for (let r = r0; r <= r1; r++) {
+        const rlo = v1 - (r + 1) / ROWS * (v1 - v0), rhi = v1 - r / ROWS * (v1 - v0);
+        const ov = Math.min(hi, rhi) - Math.max(lo, rlo); if (ov > 0) dens[off + r] += cnt * ov / width;
+      }
+    }
+    for (let r = 0; r < ROWS; r++) if (dens[off + r] > mx) mx = dens[off + r];
+    if (mx > 0) for (let r = 0; r < ROWS; r++) dens[off + r] = Math.sqrt(dens[off + r] / mx);
+  }
+  // paint pixel-exact into an ImageData over the card colour
+  const dpr = window.devicePixelRatio || 1, W = Math.max(1, Math.round(pw * dpr)), H = Math.max(1, Math.round(ph * dpr));
+  const img = ctx.createImageData(W, H), d = img.data;
+  const [cr, cg, cb] = hex(runColor(card.entry.run)), [br, bg, bb] = hex(css('--card'));
+  let c = 0;
+  for (let px = 0; px < W; px++) {
+    const x = xLo + (px + 0.5) / W * (xHi - xLo);
+    while (c < n - 1 && x > bounds[c + 1]) c++;
+    const off = c * ROWS;
+    for (let py = 0; py < H; py++) {
+      const r = Math.min(ROWS - 1, Math.floor(py / H * ROWS)); const a = dens[off + r];
+      const k = (py * W + px) * 4;
+      if (a <= 0.02) { d[k] = br; d[k + 1] = bg; d[k + 2] = bb; d[k + 3] = 255; continue; }
+      const t = 0.1 + 0.9 * a;
+      d[k] = br + (cr - br) * t; d[k + 1] = bg + (cg - bg) * t; d[k + 2] = bb + (cb - bb) * t; d[k + 3] = 255;
+    }
+  }
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.putImageData(img, Math.round(ml * dpr), Math.round(M.t * dpr)); ctx.restore();
+  // axes
+  const inkC = css('--ink-3');
+  ctx.strokeStyle = css('--axis'); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(ml, M.t + ph + 0.5); ctx.lineTo(w - M.r, M.t + ph + 0.5); ctx.moveTo(ml + 0.5, M.t); ctx.lineTo(ml + 0.5, M.t + ph); ctx.stroke();
+  ctx.fillStyle = inkC; ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
+  ticks.forEach((t, i) => { const py = sy(t); if (py > M.t + ph + 1 || py < M.t - 1) return; ctx.fillText(labels[i], ml - 5, py); ctx.fillRect(ml - 3, Math.round(py), 3, 1); });
+  let xl;
+  if (mode === 'step') { const r = linTicks(x0, x1, Math.max(2, Math.floor(pw / 80))); const ls = fmtTicks(r.ticks, r.step, true); xl = r.ticks.map((v, i) => [sxb(v), ls[i]]); }
+  else { const r = timeTicks(x0, x1, Math.max(2, Math.floor(pw / 80)), mode === 'wall'); xl = r.ticks.map(v => [sxb(v), mode === 'rel' ? fmtDur(v, true) : fmtClock(v, x1 - x0)]); }
+  ctx.textBaseline = 'top'; ctx.textAlign = 'center'; let lastX = -Infinity;
+  for (const [px, label] of xl) { if (px < ml - 2 || px > w - M.r + 2) continue; const tw = ctx.measureText(label).width; if (px - tw / 2 < lastX + 8) continue; lastX = px + tw / 2; ctx.fillText(label, Math.min(Math.max(px, ml + tw / 2), w - M.r - tw / 2), M.t + ph + 4); ctx.fillRect(Math.round(px), M.t + ph, 1, 3); }
+  card.render = { items, xs, bounds, sx: sxb, sy, v0, v1, w, h, ml, pw, ph };
+}
+function massRange(it, frac) {
+  let total = 0; for (const c of it.counts) total += c;
+  if (!total) return [it.edges[0], it.edges[it.edges.length - 1]];
+  let acc = 0, lo = it.edges[0], hi = it.edges[it.edges.length - 1];
+  for (let i = 0; i < it.counts.length; i++) { acc += it.counts[i]; if (acc >= total * frac) { lo = it.edges[i]; break; } }
+  acc = 0;
+  for (let i = it.counts.length - 1; i >= 0; i--) { acc += it.counts[i]; if (acc >= total * frac) { hi = it.edges[i + 1]; break; } }
+  return [lo, hi];
+}
+function bindHistEvents(card) {
+  const plot = card.plot;
+  plot.addEventListener('pointermove', e => {
+    const R = card.render; if (!R) return;
+    const rc = plot.getBoundingClientRect(); const px = e.clientX - rc.left, py = e.clientY - rc.top;
+    const { ctx, w, h } = setupCanvas(card, card.ov); ctx.clearRect(0, 0, w, h);
+    if (px < R.ml || px > w - M.r) { card.tip.classList.remove('on'); return; }
+    const xData = R.bounds[0] + (px - R.ml) / R.pw * (R.bounds[R.bounds.length - 1] - R.bounds[0]);
+    let c = 0; while (c < R.items.length - 1 && xData > R.bounds[c + 1]) c++;
+    const it = R.items[c];
+    const xa = Math.max(R.ml, R.sx(R.bounds[c])), xb = Math.min(w - M.r, R.sx(R.bounds[c + 1]));
+    ctx.strokeStyle = css('--ink-2'); ctx.lineWidth = 1; ctx.strokeRect(Math.round(xa) + 0.5, M.t + 0.5, Math.max(1, Math.round(xb - xa)), R.ph - 1);
+    let n = 0, sum = 0; for (let b = 0; b < it.counts.length; b++) { n += it.counts[b]; sum += it.counts[b] * (it.edges[b] + it.edges[b + 1]) / 2; }
+    const tip = card.tip; tip.innerHTML = '';
+    const th = document.createElement('div'); th.className = 'th num'; th.textContent = `step ${fmtStep(it.step)} · ${fmtDate(it.wall)}`; tip.appendChild(th);
+    const tb = document.createElement('table');
+    for (const [k, v] of [['count', fmtSI(n, 0)], ['mean', fmtVal(sum / (n || 1))], ['min', fmtVal(it.edges[0])], ['max', fmtVal(it.edges[it.edges.length - 1])], ['value at cursor', fmtVal(R.v1 - (py - M.t) / R.ph * (R.v1 - R.v0))]]) {
+      const tr = document.createElement('tr'); const a = document.createElement('td'); a.className = 'n'; a.textContent = k; const b = document.createElement('td'); b.className = 'v num'; b.textContent = v; tr.appendChild(b); tr.appendChild(a); tb.appendChild(tr);
+    }
+    tip.appendChild(tb); tip.classList.add('on');
+    const tw = tip.offsetWidth, thh = tip.offsetHeight;
+    let left = px + 12; if (left + tw > w - 4) left = px - 12 - tw; if (left < 4) left = 4;
+    tip.style.left = left + 'px'; tip.style.top = Math.min(Math.max(py - thh / 2, 4), h - thh - 4) + 'px';
+  });
+  plot.addEventListener('pointerleave', () => { clearOverlay(card); card.tip.classList.remove('on'); });
+}
+
+// ---- text cards ------------------------------------------------------------------------
+function renderText(card) {
+  const s = card.entry.run.texts.get(card.entry.tag);
+  if (!s || !s.items.length) { card.body.textContent = ''; card.stepLabel.textContent = ''; return; }
+  const max = s.items.length - 1;
+  card.slider.max = String(max);
+  if (card.atEnd) card.slider.value = String(max);
+  const i = Math.min(max, +card.slider.value);
+  const it = s.items[i];
+  card.body.textContent = it.text;
+  card.stepLabel.textContent = `step ${fmtStep(it.step)} · ${i + 1}/${s.items.length}`;
+}
+
+// ---- states ----------------------------------------------------------------------------
+function rootLabel() { const u = new URL(rootUrl); return (u.origin === location.origin ? '' : u.origin) + decodeURIComponent(u.pathname); }
+function showRootError(m) {
+  rootProblem = true; setFresh('bad', 'cannot list log directory');
+  $('#content').innerHTML = '';
+  const d = document.createElement('div'); d.className = 'state';
+  d.innerHTML = `<h2>Cannot read the log directory</h2><p>Requested <code></code> and got <b></b>.</p>
+  <p>BlernsBoard reads runs by listing the directory it is served from, so the page needs to sit inside the log directory, or be pointed at one on the same server with <code>?logdir=path/</code>.</p>
+  <p>Simplest setup:</p><pre>cp blernsboard.html /path/to/logs/\ncd /path/to/logs && python3 -m http.server --bind 0.0.0.0 6006\n# then open http://&lt;host&gt;:6006/blernsboard.html</pre>
+  <p>Or, without copying: <code>python3 serve.py /path/to/logs</code></p>`;
+  d.querySelector('code').textContent = rootUrl; d.querySelector('b').textContent = m.message;
+  $('#content').appendChild(d);
+}
+function showRootEmpty(m) {
+  rootProblem = true; setFresh('bad', 'no event files');
+  $('#content').innerHTML = '';
+  const d = document.createElement('div'); d.className = 'state';
+  d.innerHTML = m.looksHtml
+    ? `<h2>No event files found</h2><p>The listing at <code></code> contains no directories and no files whose name includes <b>tfevents</b>. Is this the right directory? Runs are found by walking sub-directories up to 10 levels deep.</p>`
+    : `<h2>This does not look like a directory listing</h2><p><code></code> returned <b></b> instead of an HTML listing with links. Serve the log directory with a server that lists directories, for example <code>python3 -m http.server</code>, and open this page from inside it.</p>`;
+  d.querySelector('code').textContent = rootUrl; const b = d.querySelector('b'); if (!m.looksHtml) b.textContent = m.contentType || 'an unknown content type';
+  $('#content').appendChild(d);
+}
+
+// ---- boot --------------------------------------------------------------------------------
+loadState();
+document.documentElement.dataset.theme = state.theme;
+$('#themeBtn').textContent = state.theme === 'dark' ? 'light' : 'dark';
+$('#rootLabel').textContent = rootLabel(); $('#rootLabel').title = rootUrl;
+document.title = 'BlernsBoard · ' + rootLabel().split('/').filter(Boolean).pop();
+$('#smooth').value = state.s; $('#smoothVal').textContent = state.s.toFixed(2);
+$('#outliers').checked = state.o; $('#sync').checked = state.sync; $('#keep').checked = state.keep;
+$('#refreshSel').value = String([5, 15, 30, 60, 0].includes(state.r) ? state.r : 15);
+$('#tagFilter').value = state.tags; try { tagRegex = state.tags ? new RegExp(state.tags, 'i') : null; } catch { tagRegex = null; }
+$('#main').dataset.cols = state.cols || '';
+syncX(); syncY(); syncCols();
+$('#content').innerHTML = '<div class="state"><h2>Reading logs</h2><p>Listing <code></code></p></div>'; $('#content code').textContent = rootLabel();
+worker.postMessage({ type: 'start', root: rootUrl, intervalMs: state.r * 1000, purge: !state.keep });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) worker.postMessage({ type: 'refresh' }); });
+// sidebar resize
+document.body.style.setProperty('--side', Math.min(600, Math.max(180, state.side || 264)) + 'px');
+{
+  const grip = $('#resize'); let drag = null;
+  grip.addEventListener('pointerdown', e => { drag = { x: e.clientX, w: parseFloat(getComputedStyle(document.body).getPropertyValue('--side')) }; grip.classList.add('on'); grip.setPointerCapture(e.pointerId); });
+  grip.addEventListener('pointermove', e => { if (!drag) return; state.side = Math.min(600, Math.max(180, drag.w + e.clientX - drag.x)); document.body.style.setProperty('--side', state.side + 'px'); });
+  grip.addEventListener('pointerup', () => { if (!drag) return; drag = null; grip.classList.remove('on'); saveState(); });
+}
+window.addEventListener('keydown', e => { if (e.key === 'Escape') { for (const c of cards.values()) c.zoom = null; globalZoom = null; allDirty(); } });
+})();
+</script>
+</body>
+</html>
