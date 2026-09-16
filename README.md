@@ -12,11 +12,10 @@ pipx install git+https://github.com/dleemiller/BlernsBoard      # or: pip instal
 
 ```sh
 git clone https://github.com/dleemiller/BlernsBoard && cd BlernsBoard
-make install            # ~/.local/bin/blernsboard, files in ~/.local/share/blernsboard
-make uninstall
+make install
 ```
 
-`make install` tells you if `~/.local/bin` is not on your PATH (common on macOS). Use `make install PREFIX=/usr/local` for a system-wide install.
+`make install` asks where to put things (Enter accepts `~/.local`, which gives `~/.local/bin/blernsboard`), asks before overwriting an existing install, and can be stopped with Ctrl-C at any prompt. It tells you if the bin directory is not on your PATH, which is common on macOS. `make install PREFIX=/usr/local` skips the location prompt; `make uninstall` removes it; `FORCE=1 make install PREFIX=...` runs with no prompts for scripts.
 
 ## Run it
 
