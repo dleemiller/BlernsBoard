@@ -49,13 +49,11 @@ if [ "$MODE" = uninstall ]; then
   echo "removed."; exit 0
 fi
 
-existing=""
-if [ -e "$BIN/blernsboard" ] || [ -d "$SHARE" ]; then
-  have=$(grep -o '__version__ = "[^"]*"' "$SHARE/serve.py" 2>/dev/null | cut -d'"' -f2)
-  existing="replacing the existing install${have:+ (version $have)}"
-fi
+existing=0
+if [ -e "$BIN/blernsboard" ] || [ -d "$SHARE" ]; then existing=1; fi
+have=$(grep -o '__version__ = "[^"]*"' "$SHARE/serve.py" 2>/dev/null | cut -d'"' -f2)
 if [ $interactive -eq 1 ]; then
-  echo "This puts the command at $BIN/blernsboard and its files in $SHARE/${existing:+, $existing}."
+  echo "BlernsBoard: Play Ball!"
   ask "Install to $PREFIX? [Y/n]: " "y"
   case "$REPLY" in n|N|no)
     echo "nothing changed."
@@ -66,7 +64,11 @@ if [ $interactive -eq 1 ]; then
     fi
     exit 0 ;;
   esac
-elif [ -n "$existing" ] && [ -z "$FORCE" ]; then
+  if [ $existing -eq 1 ]; then
+    ask "An install${have:+ (version $have)} already exists here. Overwrite it? [Y/n]: " "y"
+    case "$REPLY" in n|N|no) echo "nothing changed."; exit 0 ;; esac
+  fi
+elif [ $existing -eq 1 ] && [ -z "$FORCE" ]; then
   echo "an install already exists under $PREFIX; rerun with FORCE=1 to replace it." >&2; exit 1
 fi
 
