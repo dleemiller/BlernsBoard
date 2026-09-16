@@ -2,7 +2,7 @@
 # Install BlernsBoard as a shell command. Interactive by default: asks where to
 # put things and before overwriting an existing install. Ctrl-C aborts at any point.
 #
-#   sh install.sh                    prompt for the prefix (default ~/.local)
+#   sh install.sh                    asks "Install to ~/.local? [Y/n]"
 #   sh install.sh --prefix /usr/local
 #   sh install.sh --uninstall [--prefix ...]
 #   FORCE=1 sh install.sh --prefix ~/.local   no prompts (for scripts)
@@ -36,14 +36,8 @@ if [ "$MODE" = install ]; then
   for f in blernsboard.html serve.py; do [ -f "$HERE/$f" ] || { echo "missing $HERE/$f" >&2; exit 1; }; done
 fi
 
-if [ -z "$PREFIX" ]; then
-  echo "BlernsBoard installs two things under a prefix:"
-  echo "  <prefix>/bin/blernsboard          the command"
-  echo "  <prefix>/share/blernsboard/       blernsboard.html and serve.py"
-  echo "Press Enter for the default, type another path, or Ctrl-C to stop."
-  ask "Prefix [$DEFAULT_PREFIX]: " "$DEFAULT_PREFIX"
-  PREFIX=$(expand_tilde "$REPLY")
-fi
+asked_default=0
+if [ -z "$PREFIX" ]; then PREFIX=$DEFAULT_PREFIX; asked_default=1; fi
 case "$PREFIX" in /*) ;; *) PREFIX="$PWD/$PREFIX" ;; esac
 BIN="$PREFIX/bin"; SHARE="$PREFIX/share/blernsboard"
 
@@ -55,17 +49,21 @@ if [ "$MODE" = uninstall ]; then
   echo "removed."; exit 0
 fi
 
+existing=""
 if [ -e "$BIN/blernsboard" ] || [ -d "$SHARE" ]; then
   have=$(grep -o '__version__ = "[^"]*"' "$SHARE/serve.py" 2>/dev/null | cut -d'"' -f2)
-  echo "An existing install${have:+ (version $have)} was found:"
-  [ -e "$BIN/blernsboard" ] && echo "  $BIN/blernsboard"
-  [ -d "$SHARE" ] && echo "  $SHARE/"
-  if [ $interactive -eq 1 ]; then
-    ask "Overwrite it? [Y/n]: " "y"
-    case "$REPLY" in n|N|no) echo "nothing changed."; exit 0 ;; esac
-  elif [ -z "$FORCE" ]; then
-    echo "refusing to overwrite without a terminal; rerun with FORCE=1 to replace it." >&2; exit 1
-  fi
+  existing="replacing the existing install${have:+ (version $have)}"
+fi
+if [ $interactive -eq 1 ]; then
+  echo "This puts the command at $BIN/blernsboard and its files in $SHARE/${existing:+, $existing}."
+  ask "Install to $PREFIX? [Y/n]: " "y"
+  case "$REPLY" in n|N|no)
+    echo "nothing changed."
+    [ $asked_default -eq 1 ] && echo "to choose another location: make install PREFIX=/some/path"
+    exit 0 ;;
+  esac
+elif [ -n "$existing" ] && [ -z "$FORCE" ]; then
+  echo "an install already exists under $PREFIX; rerun with FORCE=1 to replace it." >&2; exit 1
 fi
 
 mkdir -p "$SHARE" "$BIN"

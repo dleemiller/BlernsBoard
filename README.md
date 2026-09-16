@@ -15,7 +15,7 @@ git clone https://github.com/dleemiller/BlernsBoard && cd BlernsBoard
 make install
 ```
 
-`make install` asks where to put things (Enter accepts `~/.local`, which gives `~/.local/bin/blernsboard`), asks before overwriting an existing install, and can be stopped with Ctrl-C at any prompt. It tells you if the bin directory is not on your PATH, which is common on macOS. `make install PREFIX=/usr/local` skips the location prompt; `make uninstall` removes it; `FORCE=1 make install PREFIX=...` runs with no prompts for scripts.
+`make install` asks `Install to ~/.local? [Y/n]` (that gives `~/.local/bin/blernsboard`), says so if it would replace an existing install, and stops on `n` or Ctrl-C without touching anything. Use `make install PREFIX=/usr/local` for another location and `make uninstall` to remove it. It tells you if the bin directory is not on your PATH, which is common on macOS.
 
 ## Run it
 
