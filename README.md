@@ -1,10 +1,10 @@
-# BlernsBoard
+<h1 align="center"><img src="blernsball.svg" width="36" height="36" alt=""> BlernsBoard: Play Ball! <img src="blernsball.svg" width="36" height="36" alt=""></h1>
 
 A single HTML file that reads TensorBoard event logs
 
 ## Install
 
-Any of these gives you a `blernsboard` command. Python 3.8+ is the only requirement; there are no dependencies.
+Any of these gives you a `blernsboard` command. Python is the only requirement
 
 ```sh
 pipx install git+https://github.com/dleemiller/BlernsBoard      # or: pip install git+...
@@ -15,7 +15,11 @@ git clone https://github.com/dleemiller/BlernsBoard && cd BlernsBoard
 make install
 ```
 
-`make install` asks `Install to ~/.local? [Y/n]` (that gives `~/.local/bin/blernsboard`), says so if it would replace an existing install, and stops on `n` or Ctrl-C without touching anything. `sudo make install PREFIX=/usr/local` installs system-wide; any other prefix only works if its `bin/` is on your PATH, and the installer prints the line to add if it is not (common on macOS for `~/.local/bin`). `make uninstall` removes it.
+### Remove
+
+```sh
+make uninstall
+```
 
 ## Run it
 
