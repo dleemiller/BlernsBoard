@@ -7,11 +7,11 @@ A single HTML file that reads TensorBoard event logs
 Any of these gives you a `blernsboard` command. Python 3.8+ is the only requirement; there are no dependencies.
 
 ```sh
-pipx install git+https://github.com/futo-org/BlernsBoard      # or: pip install git+...
+pipx install git+https://github.com/dleemiller/BlernsBoard      # or: pip install git+...
 ```
 
 ```sh
-git clone https://github.com/futo-org/BlernsBoard && cd BlernsBoard
+git clone https://github.com/dleemiller/BlernsBoard && cd BlernsBoard
 make install            # ~/.local/bin/blernsboard, files in ~/.local/share/blernsboard
 make uninstall
 ```
