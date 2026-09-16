@@ -638,17 +638,38 @@ function workerMain() {
   // refuses every lookup from that machine. So: at most PACE requests per second, only
   // files that are plausibly still being written are polled each cycle, directories are
   // re-listed rarely, and a failing server backs the interval off.
-  const PACE = 30;
-  let paceTokens = PACE, paceLast = Date.now();
+  // 30/s against an unknown static server; 80/s when serve.py's index is in use, since its
+  // keep-alive connections mean the browser resolves the host a handful of times, not per request.
+  const paceRate = () => indexMode === true ? 80 : 30;
+  let paceTokens = 30, paceLast = Date.now();
   async function pace() {
     for (;;) {
-      const now = Date.now();
+      const PACE = paceRate(), now = Date.now();
       paceTokens = Math.min(PACE, paceTokens + (now - paceLast) * PACE / 1000); paceLast = now;
       if (paceTokens >= 1) { paceTokens -= 1; return; }
       await new Promise(r => setTimeout(r, Math.ceil((1 - paceTokens) * 1000 / PACE)));
     }
   }
   async function pfetch(url, opts) { await pace(); return fetch(url, opts); }
+
+  // ---- index endpoint (serve.py): one request lists every file with its size ----------
+  let indexMode = null; // null = untested, true = use __index, false = walk directory listings
+  async function discoverIndex(root) {
+    let r;
+    try { r = await pfetch(new URL('__index', root).href, { cache: 'no-store' }); } catch (e) { return undefined; }
+    if (!r.ok) return null;
+    let j; try { j = await r.json(); } catch { return null; }
+    if (!j || !Array.isArray(j.files)) return null;
+    const found = new Map();
+    for (const f of j.files) {
+      const parts = f.path.split('/'); const name = parts.pop(); if (!name.includes('tfevents')) continue;
+      const run = parts.length ? parts.join('/') : '.';
+      if (!found.has(run)) found.set(run, []);
+      found.get(run).push({ url: root + parts.concat(name).map(encodeURIComponent).join('/'), name, size: f.size });
+    }
+    for (const files of found.values()) files.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    return found;
+  }
 
   // ---- cycle ----------------------------------------------------------------------
   let root = '', busy = false, timer = null, intervalMs = 15000, lastList = 0, first = true, backoff = 1, pendingForce = false;
@@ -675,23 +696,35 @@ function workerMain() {
     const t0 = Date.now(); let netErrors = 0;
     try {
       let listing = null;
-      if (force || first || Date.now() - lastList > RELIST_MS || runs.size === 0) {
+      if (indexMode !== false) {
+        // with the index every cycle is one request and sizes come for free
+        const idx = await discoverIndex(root);
+        if (idx === undefined) netErrors++;
+        else if (idx === null) indexMode = false;
+        else { indexMode = true; listing = idx; lastList = Date.now(); if (!idx.size) { post({ type: 'rootEmpty', looksHtml: true }); } }
+      }
+      if (indexMode === false && (force || first || Date.now() - lastList > RELIST_MS || runs.size === 0)) {
         post({ type: 'progress', phase: 'listing', dirs: 0 });
         listing = await discover(root); lastList = Date.now();
       }
       if (listing) {
         for (const [name, files] of listing) {
           const run = runs.get(name) || newRun(name);
-          for (const f of files) if (!run.files.has(f.name)) run.files.set(f.name, { name: f.name, url: f.url, fetched: 0, pending: null, pendingLen: 0, corrupt: false, checked: 0, lastWall: 0, grew: 0 });
+          for (const f of files) {
+            let file = run.files.get(f.name);
+            if (!file) { file = { name: f.name, url: f.url, fetched: 0, pending: null, pendingLen: 0, corrupt: false, checked: 0, lastWall: 0, grew: 0, size: -1 }; run.files.set(f.name, file); }
+            file.size = f.size != null ? f.size : -1;
+          }
         }
-        post({ type: 'runs', runs: [...runs.keys()] });
+        post({ type: 'runs', runs: [...runs.keys()], index: indexMode === true });
       }
       const now = Date.now();
       const work = []; // [run, files(sorted), due(Set)]
       for (const run of runs.values()) {
         const files = [...run.files.values()].sort((a, b) => a.name < b.name ? -1 : 1);
         const shown = !selected || selected.has(run.name);
-        const due = new Set(files.filter((f, i) => !f.corrupt && pollDue(f, i === files.length - 1, now, force, shown)));
+        // index mode: sizes are already known, so a file is due exactly when it changed or was never read
+        const due = new Set(files.filter((f, i) => !f.corrupt && (indexMode === true ? (f.fetched === 0 || f.size !== f.fetched) : pollDue(f, i === files.length - 1, now, force, shown))));
         if (due.size) work.push([run, files, due]);
       }
       let total = 0, done = 0, bytes = 0;
@@ -707,7 +740,7 @@ function workerMain() {
         try {
           for (let i = 0; i < files.length; i++) {
             const f = files[i]; if (!due.has(f) || f.fetched === 0) continue;
-            const size = await fileSize(f.url); f.checked = Date.now(); sizes.set(f, size);
+            const size = indexMode === true ? f.size : await fileSize(f.url); f.checked = Date.now(); sizes.set(f, size);
             if (size >= 0 && size !== f.fetched && (i < files.length - 1 || size < f.fetched)) reset = true;
           }
         } catch (e) { run.warnings.push(e.message); netErrors++; }
@@ -881,7 +914,7 @@ const dirtyTags = new Set();
 worker.onmessage = (e) => {
   const m = e.data;
   switch (m.type) {
-    case 'runs': rootProblem = false; assignColors(m.runs); for (const n of m.runs) getRun(n); queueSidebar(); queueLayout(); sendSelection(); break;
+    case 'runs': rootProblem = false; indexMode = !!m.index; assignColors(m.runs); for (const n of m.runs) getRun(n); queueSidebar(); queueLayout(); sendSelection(); break;
     case 'scalar': {
       const run = getRun(m.run);
       let s = run.scalars.get(m.tag);
@@ -1023,7 +1056,7 @@ function timeTicks(lo, hi, n, align) {
 }
 
 // ---- UI: header / freshness ---------------------------------------------------
-let lastUpdate = 0, progress = { phase: 'listing' }, rootProblem = false;
+let lastUpdate = 0, progress = { phase: 'listing' }, rootProblem = false, indexMode = false;
 function setFresh(cls, text) { $('#dot').className = 'dot ' + (cls || ''); $('#freshText').textContent = text; }
 function onProgress(m) {
   progress = m;
@@ -1036,7 +1069,7 @@ function tickFresh() {
   const s = Math.round((Date.now() - lastUpdate) / 1000);
   let total = 0; for (const r of runs.values()) total += r.bytes;
   setFresh('', `updated ${s < 2 ? 'just now' : s < 60 ? s + 's ago' : fmtDur(s, true) + ' ago'}`);
-  $('#dot').title = $('#freshText').title = `${fmtBytes(total)} of event data in ${runs.size} runs` + (progress.files ? `\nlast refresh checked ${progress.polled} of ${progress.files} files; finished runs are checked less often` : '');
+  $('#dot').title = $('#freshText').title = `${fmtBytes(total)} of event data in ${runs.size} runs` + (progress.files ? (indexMode ? `\nserver index in use: one request per refresh lists all ${progress.files} files` : `\nlast refresh checked ${progress.polled} of ${progress.files} files; finished runs are checked less often`) : '');
 }
 setInterval(tickFresh, 1000);
 $('#refreshBtn').addEventListener('click', () => worker.postMessage({ type: 'refresh', force: true }));

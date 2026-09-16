@@ -8,9 +8,11 @@
 Flags follow TensorBoard's names. The page alone also works with any static
 server (copy blernsboard.html into the logdir and run python3 -m http.server);
 this helper adds: no copying, HTTP Range so tailing a growing file only fetches
-the tail, and browser console errors echoed to this terminal via POST /__log.
+the tail, browser console errors echoed to this terminal via POST /__log, and
+GET /__index, which lists every event file with its size in one response so the
+page refreshes with a single request instead of one per directory and file.
 """
-import argparse, json, os, sys, functools
+import argparse, json, os, sys, functools, time, threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 __version__ = "0.1.0"
@@ -21,7 +23,53 @@ PAGE = os.path.join(HERE, "blernsboard.html")
 class Handler(SimpleHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
+    _index_cache = {}
+    _index_lock = threading.Lock()
+
+    def send_index(self, prefix):
+        """JSON list of tfevents files under prefix (a URL path), sizes included; cached 2 s."""
+        base = self.translate_path(prefix if prefix.endswith("/") else prefix + "/")
+        if not os.path.isdir(base):
+            self.send_error(404, "not a directory")
+            return
+        now = time.time()
+        with self._index_lock:
+            hit = self._index_cache.get(base)
+            if hit and now - hit[0] < 2:
+                body = hit[1]
+            else:
+                files = []
+                def walk(d, rel, depth):
+                    try:
+                        with os.scandir(d) as it:
+                            for e in it:
+                                if e.name.startswith("."):
+                                    continue
+                                try:
+                                    if e.is_dir(follow_symlinks=False):
+                                        if depth < 10:
+                                            walk(e.path, rel + e.name + "/", depth + 1)
+                                    elif "tfevents" in e.name and e.is_file():
+                                        st = e.stat()
+                                        files.append({"path": rel + e.name, "size": st.st_size, "mtime": st.st_mtime})
+                                except OSError:
+                                    pass
+                    except OSError:
+                        pass
+                walk(base, "", 0)
+                body = json.dumps({"files": files, "time": now}).encode()
+                self._index_cache[base] = (now, body)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
+        path = self.path.split("?")[0]
+        if path.endswith("/__index"):
+            return self.send_index(path[: -len("__index")])
         # "/" is both the page (for a browser navigation) and the log root (for the
         # page's own fetch() calls, which send Accept: */*). Navigations ask for HTML.
         wants_page = "text/html" in self.headers.get("Accept", "") and self.headers.get("Sec-Fetch-Dest", "document") == "document"

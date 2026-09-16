@@ -43,6 +43,8 @@ cd /path/to/logs && python3 -m http.server --bind 0.0.0.0 6006
 
 Or run the helper from the checkout: `python3 serve.py --logdir /path/to/logs --bind_all`.
 
+With the helper the page refreshes with one request (`/__index` lists every event file and its size); with a plain static server it has to walk directory listings and check files one by one, so it does that sparingly.
+
 The page can also be served from elsewhere and pointed at a directory on the
 same server with `?logdir=/some/path/`. Runs are discovered by walking the
 server's directory listings; a run is any directory containing a file whose
