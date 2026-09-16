@@ -15,7 +15,7 @@ git clone https://github.com/dleemiller/BlernsBoard && cd BlernsBoard
 make install
 ```
 
-`make install` asks `Install to ~/.local? [Y/n]` (that gives `~/.local/bin/blernsboard`), says so if it would replace an existing install, and stops on `n` or Ctrl-C without touching anything. Use `make install PREFIX=/usr/local` for another location and `make uninstall` to remove it. It tells you if the bin directory is not on your PATH, which is common on macOS.
+`make install` asks `Install to ~/.local? [Y/n]` (that gives `~/.local/bin/blernsboard`), says so if it would replace an existing install, and stops on `n` or Ctrl-C without touching anything. `sudo make install PREFIX=/usr/local` installs system-wide; any other prefix only works if its `bin/` is on your PATH, and the installer prints the line to add if it is not (common on macOS for `~/.local/bin`). `make uninstall` removes it.
 
 ## Run it
 

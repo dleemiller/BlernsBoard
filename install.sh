@@ -59,7 +59,11 @@ if [ $interactive -eq 1 ]; then
   ask "Install to $PREFIX? [Y/n]: " "y"
   case "$REPLY" in n|N|no)
     echo "nothing changed."
-    [ $asked_default -eq 1 ] && echo "to choose another location: make install PREFIX=/some/path"
+    if [ $asked_default -eq 1 ]; then
+      echo "The command only works from a directory on your PATH. Alternatives:"
+      echo "  sudo make install PREFIX=/usr/local     system-wide, on every PATH"
+      echo "  make install PREFIX=/some/path          only if /some/path/bin is on your PATH"
+    fi
     exit 0 ;;
   esac
 elif [ -n "$existing" ] && [ -z "$FORCE" ]; then
