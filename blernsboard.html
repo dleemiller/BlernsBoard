@@ -1525,7 +1525,10 @@ function drawScalar(card) {
       const lo = state.o ? percentile(raw, 0.01) : raw[0], hi = state.o ? percentile(raw, 0.99) : raw[raw.length - 1];
       if (lo < y0) y0 = lo; if (hi > y1) y1 = hi;
     }
-    for (const i of S.idx) { const v = sm[i]; if (Number.isFinite(v) && (!log || v > 0)) { if (sw > 0) { if (v < y0) y0 = v; if (v > y1) y1 = v; } } else if (log && Number.isFinite(v)) skipped++; }
+    // the smoothed line drives the fit too, under the same outlier rule, so an initial spike does not squash the rest
+    const smv = [];
+    for (const i of S.idx) { const v = sm[i]; if (Number.isFinite(v) && (!log || v > 0)) { if (sw > 0) smv.push(v); } else if (log && Number.isFinite(v)) skipped++; }
+    if (smv.length) { smv.sort((a, b) => a - b); const lo = state.o ? percentile(smv, 0.01) : smv[0], hi = state.o ? percentile(smv, 0.99) : smv[smv.length - 1]; if (lo < y0) y0 = lo; if (hi > y1) y1 = hi; }
   }
   let useLog = log;
   const notes = [];
@@ -1700,7 +1703,7 @@ function drawHover(card, px, py) {
     tr.appendChild(k); tr.appendChild(v);
     if (R.sw > 0) { const rr = document.createElement('td'); rr.className = 'r num'; rr.textContent = fmtVal(row.raw); tr.appendChild(rr); }
     const n = document.createElement('td'); n.className = 'n'; n.textContent = row.S.r.name; n.title = row.S.r.name;
-    if (row.S !== S0) { const st = row.S.steps[row.i], lo = S0.view ? S0.view.step0[i0] : S0.steps[i0], hi = S0.steps[i0]; if (st < lo || st > hi) n.textContent += ` @${fmtSI(st, 1)}`; }
+    if (row.S !== S0) { const binW = (S0.view || row.S.view) ? (R.x1 - R.x0) / Math.max(1, state.d | 0) : 0; if (Math.abs(row.S.xs[row.i] - S0.xs[i0]) > binW) n.textContent += ` @${fmtSI(row.S.steps[row.i], 1)}`; }
     tr.appendChild(n); table.appendChild(tr);
   }
   tip.appendChild(table);
