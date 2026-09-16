@@ -178,7 +178,7 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
 .card .acts .txt { font-size: 11px; font-weight: 600; }
 .plot { flex: 1; min-height: 0; position: relative; cursor: crosshair; }
 .plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.plot .note { position: absolute; left: 10px; top: 6px; color: var(--ink-3); font-size: 11px; pointer-events: none; }
+.plot .note { position: absolute; right: 12px; top: 4px; color: var(--ink-3); font-size: 11px; pointer-events: none; text-align: right; max-width: 70%; }
 .tip {
   position: fixed; z-index: 20; pointer-events: none; display: none;
   background: var(--card-2); border: 1px solid var(--border-2); border-radius: 4px; padding: 6px 8px;
@@ -241,6 +241,7 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
     <div class="row"><span>smoothing</span><input type="range" id="smooth" min="0" max="0.99" step="0.01" aria-label="Smoothing"><span class="val num" id="smoothVal">0</span></div>
     <div class="row"><span>x axis</span><span class="seg" id="xmode" role="group" aria-label="X axis"><button data-v="step">step</button><button data-v="rel">time</button><button data-v="wall">clock</button></span></div>
     <div class="row"><span>y axis</span><span class="seg" id="ymode" role="group" aria-label="Y axis"><button data-v="lin">linear</button><button data-v="log">log</button></span></div>
+    <div class="row" title="Series with more points than this in the visible range are drawn as bin means with their min–max range shaded. Shorter series are untouched. Zoom in to see full detail."><span>max points per line</span><span class="seg" id="dens" role="group" aria-label="Max points per line"><button data-v="0">all</button><button data-v="5000">5k</button><button data-v="2000">2k</button><button data-v="1000">1k</button><button data-v="500">500</button></span></div>
     <div class="row"><span>columns</span><span class="seg" id="cols" role="group" aria-label="Columns"><button data-v="0">auto</button><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button></span></div>
     <label><span>ignore outliers when fitting y</span><input type="checkbox" id="outliers"></label>
     <label title="Linear charts only; log charts have no zero"><span>y axis includes 0</span><input type="checkbox" id="zero"></label>
@@ -889,7 +890,7 @@ for (const lvl of ['error', 'warn']) { const orig = console[lvl].bind(console); 
 const params = new URLSearchParams(location.search);
 const rootUrl = (() => { let u = new URL(params.get('logdir') || '.', location.href); u.search = ''; u.hash = ''; if (!u.pathname.endsWith('/')) u.pathname += '/'; return u.href; })();
 const storeKey = 'blernsboard:' + rootUrl;
-const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, closed: [], allClosed: false, side: 264, z: false, split: false, tags2: '' };
+const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, closed: [], allClosed: false, side: 264, z: false, split: false, tags2: '', d: 2000 };
 const state = { ...DEF };
 function loadState() {
   let saved = {}; try { saved = JSON.parse(localStorage.getItem(storeKey) || '{}'); } catch {}
@@ -905,6 +906,7 @@ function loadState() {
     if (h.has('y')) state.y = h.get('y');
     if (h.has('o')) state.o = h.get('o') === '1';
     if (h.has('z')) state.z = h.get('z') === '1';
+    if (h.has('d')) state.d = +h.get('d') || 0;
     if (h.has('pin')) state.pin = h.get('pin') ? h.get('pin').split(',').map(decodeURIComponent) : [];
     if (h.has('cols')) state.cols = +h.get('cols') || 0;
     if (h.has('r')) state.r = +h.get('r');
@@ -929,6 +931,7 @@ function saveState() {
     if (state.y !== 'lin') h.set('y', state.y);
     if (!state.o) h.set('o', '0');
     if (state.z) h.set('z', '1');
+    if (state.d !== 2000) h.set('d', String(state.d));
     if (state.pin.length) h.set('pin', state.pin.map(encodeURIComponent).join(','));
     if (state.cols) h.set('cols', String(state.cols));
     if (state.r !== 15) h.set('r', String(state.r));
@@ -1246,6 +1249,7 @@ function allDirty() { for (const c of cards.values()) markDirty(c); requestRende
 const syncX = segInit('#xmode', 'x', v => v, () => { for (const c of cards.values()) c.zoom = null; globalZoom = null; allDirty(); });
 const syncY = segInit('#ymode', 'y', v => v, () => { for (const c of cards.values()) { c.log = null; syncCardActs(c); } allDirty(); });
 const syncCols = segInit('#cols', 'cols', v => +v, () => { $('#main').dataset.cols = state.cols || ''; });
+const syncDens = segInit('#dens', 'd', v => +v, () => allDirty());
 $('#smooth').addEventListener('input', e => { state.s = +e.target.value; $('#smoothVal').textContent = state.s.toFixed(2); saveState(); allDirty(); });
 $('#outliers').addEventListener('change', e => { state.o = e.target.checked; saveState(); allDirty(); });
 $('#zero').addEventListener('change', e => { state.z = e.target.checked; saveState(); allDirty(); });
@@ -1440,6 +1444,28 @@ function downsample(xs, ys, i0, i1, x0, x1, width) {
   emit();
   return Int32Array.from(out);
 }
+// Bin the visible window [i0,i1) of a series into at most `cap` equal-width x bins.
+// Returns per-bin arrays: x (mean x), raw mean, min, max, smoothed mean, count, first/last step, wall.
+function decimate(xs, values, sm, steps, walls, i0, i1, x0, x1, cap) {
+  const scale = cap / (x1 - x0);
+  const x = new Float64Array(cap), mean = new Float64Array(cap), lo = new Float64Array(cap), hi = new Float64Array(cap), smm = new Float64Array(cap), cnt = new Int32Array(cap), st0 = new Float64Array(cap), st1 = new Float64Array(cap), wl = new Float64Array(cap), used = new Uint8Array(cap);
+  lo.fill(Infinity); hi.fill(-Infinity);
+  for (let i = i0; i < i1; i++) {
+    let b = Math.floor((xs[i] - x0) * scale); if (b < 0) b = 0; else if (b >= cap) b = cap - 1;
+    if (!used[b]) { used[b] = 1; st0[b] = steps[i]; }
+    st1[b] = steps[i]; wl[b] = walls[i];
+    const v = values[i]; if (v !== v) continue; // NaN
+    cnt[b]++; x[b] += xs[i]; mean[b] += v; smm[b] += sm[i]; if (v < lo[b]) lo[b] = v; if (v > hi[b]) hi[b] = v;
+  }
+  let n = 0; for (let b = 0; b < cap; b++) if (cnt[b]) n++;
+  const out = { n, x: new Float64Array(n), mean: new Float64Array(n), lo: new Float64Array(n), hi: new Float64Array(n), sm: new Float64Array(n), count: new Int32Array(n), step0: new Float64Array(n), step1: new Float64Array(n), wall: new Float64Array(n) };
+  let k = 0;
+  for (let b = 0; b < cap; b++) {
+    if (!cnt[b]) continue;
+    out.x[k] = x[b] / cnt[b]; out.mean[k] = mean[b] / cnt[b]; out.sm[k] = smm[b] / cnt[b]; out.lo[k] = lo[b]; out.hi[k] = hi[b]; out.count[k] = cnt[b]; out.step0[k] = st0[b]; out.step1[k] = st1[b]; out.wall[k] = wl[b]; k++;
+  }
+  return out;
+}
 function percentile(sorted, p) { if (!sorted.length) return NaN; const k = (sorted.length - 1) * p, lo = Math.floor(k), hi = Math.ceil(k); return sorted[lo] + (sorted[hi] - sorted[lo]) * (k - lo); }
 function setupCanvas(card, cv) {
   const dpr = window.devicePixelRatio || 1, w = Math.max(10, Math.round(card.w)), h = Math.max(10, Math.round(card.h));
@@ -1471,20 +1497,29 @@ function drawScalar(card) {
   if (!(x1 > x0)) { x0 -= 0.5; x1 += 0.5; }
   // downsample (against a provisional width; the left margin only depends on the y labels) and collect y values
   const pwGuess = w - 40 - M.r;
-  let skipped = 0, anyPositive = false;
+  let skipped = 0, anyPositive = false, decimated = null;
   let y0 = Infinity, y1 = -Infinity;
+  const cap = state.d | 0;
   for (const S of series) {
-    const { s, xs } = S;
+    const { s } = S;
     let i0 = 0, i1 = s.n;
-    if (S.sorted) { i0 = Math.max(0, lowerBound(xs, s.n, x0) - 1); i1 = Math.min(s.n, lowerBound(xs, s.n, x1) + 1); if (i1 < s.n && xs[i1] <= x1) i1++; }
-    const sm = smoothed(s, sw);
-    S.sm = sm;
+    if (S.sorted) { i0 = Math.max(0, lowerBound(S.xs, s.n, x0) - 1); i1 = Math.min(s.n, lowerBound(S.xs, s.n, x1) + 1); if (i1 < s.n && S.xs[i1] <= x1) i1++; }
+    const smFull = smoothed(s, sw);
+    // views: full resolution, or (only when the visible window exceeds the cap) bin means
+    S.view = null;
+    if (cap && S.sorted && i1 - i0 > cap) {
+      const D = decimate(S.xs, s.values, smFull, s.steps, s.walls, i0, i1, x0, x1, cap);
+      S.view = D; S.xs = D.x; S.raw = D.mean; S.sm = D.sm; S.steps = D.step1; S.walls = D.wall; i0 = 0; i1 = D.n;
+      if (!decimated || i1 - i0 > decimated.shown) decimated = { shown: D.n, of: s.n };
+    } else { S.raw = s.values; S.sm = smFull; S.steps = s.steps; S.walls = s.walls; }
+    const xs = S.xs, sm = S.sm;
     S.idx = downsample(xs, sm, i0, i1, x0, x1, pwGuess);
-    S.idxRaw = sw > 0 ? downsample(xs, s.values, i0, i1, x0, x1, pwGuess) : S.idx;
+    S.idxRaw = sw > 0 ? downsample(xs, S.raw, i0, i1, x0, x1, pwGuess) : S.idx;
     // each series gets its own robust range, then the ranges are unioned, so a sparse run can
     // never be pushed off-screen by a dense one
     const raw = [];
-    for (const i of S.idxRaw) { const v = s.values[i]; if (Number.isFinite(v) && (!log || v > 0)) raw.push(v); }
+    for (const i of S.idxRaw) { const v = S.raw[i]; if (Number.isFinite(v) && (!log || v > 0)) raw.push(v); }
+    if (S.view) for (let i = 0; i < S.view.n; i++) { if (Number.isFinite(S.view.lo[i]) && (!log || S.view.lo[i] > 0)) raw.push(S.view.lo[i]); if (Number.isFinite(S.view.hi[i]) && (!log || S.view.hi[i] > 0)) raw.push(S.view.hi[i]); }
     if (raw.length) {
       anyPositive = true; raw.sort((a, b) => a - b);
       const lo = state.o ? percentile(raw, 0.01) : raw[0], hi = state.o ? percentile(raw, 0.99) : raw[raw.length - 1];
@@ -1493,8 +1528,11 @@ function drawScalar(card) {
     for (const i of S.idx) { const v = sm[i]; if (Number.isFinite(v) && (!log || v > 0)) { if (sw > 0) { if (v < y0) y0 = v; if (v > y1) y1 = v; } } else if (log && Number.isFinite(v)) skipped++; }
   }
   let useLog = log;
-  if (log && !anyPositive) { useLog = false; card.note.textContent = 'log axis unavailable: no positive values'; }
-  else if (log && skipped) card.note.textContent = `log axis: ${skipped} non-positive point${skipped > 1 ? 's' : ''} hidden`;
+  const notes = [];
+  if (log && !anyPositive) { useLog = false; notes.push('log axis unavailable: no positive values'); }
+  else if (log && skipped) notes.push(`log axis: ${skipped} non-positive point${skipped > 1 ? 's' : ''} hidden`);
+  if (decimated) notes.push(`${fmtSI(decimated.shown, 0)} of ${fmtSI(decimated.of, 0)} points, bin means with range shaded`);
+  card.note.textContent = notes.join(' · ');
   if (!Number.isFinite(y0) || !Number.isFinite(y1)) { y0 = 0; y1 = 1; }
   if (state.z && !useLog) { if (y0 > 0) y0 = 0; if (y1 < 0) y1 = 0; }
   if (useLog) { y0 = Math.log10(y0); y1 = Math.log10(y1); }
@@ -1537,7 +1575,15 @@ function drawScalar(card) {
     ctx.stroke();
     if (idx.length === 1) { const i = idx[0]; if (Number.isFinite(ys[i])) { ctx.fillStyle = runColor(S.r); ctx.beginPath(); ctx.arc(sx(S.xs[i]), sy(ys[i]), 2.5, 0, 7); ctx.fill(); } }
   };
-  for (const S of series) { const dim = dimOthers && S.r.name !== hoverRun; if (sw > 0) drawLine(S, S.idxRaw, S.s.values, dim ? 0.08 : 0.25, 1); }
+  for (const S of series) {
+    if (!S.view) continue;
+    const dim = dimOthers && S.r.name !== hoverRun; const D = S.view;
+    ctx.globalAlpha = dim ? 0.05 : 0.14; ctx.fillStyle = runColor(S.r); ctx.beginPath(); let pen = false;
+    for (let i = 0; i < D.n; i++) { const v = D.hi[i]; if (!Number.isFinite(v) || (useLog && v <= 0)) continue; const px = sx(D.x[i]), py = sy(v); if (!pen) { ctx.moveTo(px, py); pen = true; } else ctx.lineTo(px, py); }
+    for (let i = D.n - 1; i >= 0; i--) { const v = D.lo[i]; if (!Number.isFinite(v) || (useLog && v <= 0)) continue; ctx.lineTo(sx(D.x[i]), sy(v)); }
+    if (pen) { ctx.closePath(); ctx.fill(); }
+  }
+  for (const S of series) { const dim = dimOthers && S.r.name !== hoverRun; if (sw > 0) drawLine(S, S.idxRaw, S.raw, dim ? 0.08 : 0.25, 1); }
   for (const S of series) { const dim = dimOthers && S.r.name !== hoverRun; drawLine(S, S.idx, S.sm, dim ? 0.2 : 1, sw > 0 ? 1.8 : 1.5); }
   ctx.globalAlpha = 1; ctx.restore();
   // tick labels: y outside on the left, x below
@@ -1621,7 +1667,7 @@ function drawHover(card, px, py) {
     const ok = Number.isFinite(v) && (!R.useLog || v > 0);
     const ppy = ok ? R.sy(v) : NaN;
     const d = Math.abs(ppx - px) + (ok ? Math.abs(ppy - py) * 0.35 : 1e9);
-    rows.push({ S, i, v, raw: S.s.values[i], x, ppx, ppy, ok });
+    rows.push({ S, i, v, raw: S.raw[i], x, ppx, ppy, ok });
     if (!best || d < best.d) best = { d, row: rows[rows.length - 1] };
   }
   if (!best) return;
@@ -1637,10 +1683,12 @@ function drawHover(card, px, py) {
   }
   // tooltip
   rows.sort((a, b) => (Number.isFinite(b.v) ? b.v : -Infinity) - (Number.isFinite(a.v) ? a.v : -Infinity));
-  const s0 = best.row.S.s, i0 = best.row.i;
+  const S0 = best.row.S, i0 = best.row.i;
   const tip = card.tip; tip.innerHTML = '';
   const th = document.createElement('div'); th.className = 'th num';
-  th.textContent = `step ${fmtStep(s0.steps[i0])} · ${fmtDur(s0.walls[i0] - s0.walls[0], true)} · ${fmtDate(s0.walls[i0])}`;
+  const wall0 = S0.s.walls[0];
+  if (S0.view && S0.view.count[i0] > 1) th.textContent = `steps ${fmtStep(S0.view.step0[i0])}–${fmtStep(S0.view.step1[i0])} · mean of ${S0.view.count[i0]} points · ${fmtDur(S0.walls[i0] - wall0, true)}`;
+  else th.textContent = `step ${fmtStep(S0.steps[i0])} · ${fmtDur(S0.walls[i0] - wall0, true)} · ${fmtDate(S0.walls[i0])}`;
   tip.appendChild(th);
   const table = document.createElement('table');
   const MAXROWS = 14; let shown = rows;
@@ -1652,7 +1700,7 @@ function drawHover(card, px, py) {
     tr.appendChild(k); tr.appendChild(v);
     if (R.sw > 0) { const rr = document.createElement('td'); rr.className = 'r num'; rr.textContent = fmtVal(row.raw); tr.appendChild(rr); }
     const n = document.createElement('td'); n.className = 'n'; n.textContent = row.S.r.name; n.title = row.S.r.name;
-    if (row.S.s.steps[row.i] !== s0.steps[i0]) { n.textContent += ` @${fmtSI(row.S.s.steps[row.i], 1)}`; }
+    if (row.S !== S0) { const st = row.S.steps[row.i], lo = S0.view ? S0.view.step0[i0] : S0.steps[i0], hi = S0.steps[i0]; if (st < lo || st > hi) n.textContent += ` @${fmtSI(st, 1)}`; }
     tr.appendChild(n); table.appendChild(tr);
   }
   tip.appendChild(table);
@@ -1701,9 +1749,9 @@ function downloadCsv(card) {
   const R = card.render; if (!R) return;
   const lines = ['run,tag,step,wall_time,value' + (R.sw > 0 ? ',smoothed' : '')];
   for (const S of R.series) {
-    const { s } = S; let i0 = 0, i1 = s.n;
-    if (S.sorted) { i0 = lowerBound(S.xs, s.n, R.x0); i1 = lowerBound(S.xs, s.n, R.x1); if (i1 < s.n && S.xs[i1] <= R.x1) i1++; }
-    for (let i = i0; i < i1; i++) lines.push(`${q(S.r.name)},${q(s.tag)},${s.steps[i]},${s.walls[i]},${s.values[i]}${R.sw > 0 ? ',' + S.sm[i] : ''}`);
+    const { s } = S, xsFull = xArray(s, R.mode), smFull = smoothed(s, R.sw); let i0 = 0, i1 = s.n;
+    if (S.sorted) { i0 = lowerBound(xsFull, s.n, R.x0); i1 = lowerBound(xsFull, s.n, R.x1); if (i1 < s.n && xsFull[i1] <= R.x1) i1++; }
+    for (let i = i0; i < i1; i++) lines.push(`${q(S.r.name)},${q(s.tag)},${s.steps[i]},${s.walls[i]},${s.values[i]}${R.sw > 0 ? ',' + smFull[i] : ''}`);
   }
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = card.entry.tag.replace(/[^\w.-]+/g, '_') + '.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -1870,7 +1918,7 @@ panes[0].input.value = state.tags; panes[1].input.value = state.tags2;
 for (const pane of panes) { const v = pane.id === 0 ? state.tags : state.tags2; try { pane.regex = v ? new RegExp(v, 'i') : null; } catch { pane.regex = null; pane.input.classList.add('bad'); } }
 $('#split').checked = !!state.split; panes[1].el.hidden = !state.split;
 $('#main').dataset.cols = state.cols || '';
-syncX(); syncY(); syncCols();
+syncX(); syncY(); syncCols(); syncDens();
 panes[0].content.innerHTML = '<div class="state"><h2>Reading logs</h2><p>Listing <code></code></p></div>'; panes[0].content.querySelector('code').textContent = rootLabel();
 worker.postMessage({ type: 'start', root: rootUrl, intervalMs: state.r * 1000, purge: !state.keep });
 document.addEventListener('visibilitychange', () => worker.postMessage({ type: 'visible', visible: !document.hidden }));
