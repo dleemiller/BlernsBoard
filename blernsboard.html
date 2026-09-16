@@ -773,8 +773,11 @@ function getRun(name) {
   return r;
 }
 function assignColors(names) {
+  // colour follows the run across reloads: the first assignment is remembered per logdir
+  if (!colorNext) for (const v of Object.values(state.colors)) colorNext = Math.max(colorNext, (v | 0) + 1);
   const fresh = names.filter(n => getRun(n).idx < 0).sort(natCmp);
-  for (const n of fresh) { const r = getRun(n); r.idx = state.colors[n] != null ? state.colors[n] : colorNext++; }
+  for (const n of fresh) { const r = getRun(n); r.idx = state.colors[n] != null ? state.colors[n] : colorNext++; state.colors[n] = r.idx; }
+  if (fresh.length) saveState();
 }
 function runColor(run) {
   const pal = PALETTE[state.theme === 'light' ? 'light' : 'dark'];
