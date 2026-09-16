@@ -1173,7 +1173,8 @@ function matches(re, s) { return !re || re.test(s); }
 function queueSidebar() { if (!sidebarTimer) sidebarTimer = setTimeout(() => { sidebarTimer = null; renderSidebar(); }, 150); }
 function renderSidebar() {
   const ul = $('#runs');
-  const names = [...runs.keys()].sort(natCmp);
+  // newest activity first, so the live runs sit at the top and the list scrolls into the past
+  const names = [...runs.values()].sort((a, b) => ((b.lastWall || 0) - (a.lastWall || 0)) || natCmp(a.name, b.name)).map(r => r.name);
   const existing = new Map([...ul.children].map(li => [li.dataset.run, li]));
   let visible = 0;
   for (const name of names) {
