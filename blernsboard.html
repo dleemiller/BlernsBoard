@@ -521,7 +521,7 @@ function workerMain() {
       if (pos + 12 + len + 4 > n) break; // wait for more bytes
       const ds = pos + 12, de = ds + len;
       if (maskedCrc(buf, ds, de) !== dv.getUint32(de, true)) { corrupt(run, file, pos, 'data CRC mismatch'); return pos; }
-      try { handleEvent(run, decodeEvent(buf, dv, ds, de)); }
+      try { const ev = decodeEvent(buf, dv, ds, de); if (ev.wall > file.lastWall) file.lastWall = ev.wall; handleEvent(run, ev); }
       catch (e) { corrupt(run, file, pos, 'undecodable event: ' + e.message); return pos; }
       pos = de + 4;
     }
@@ -544,7 +544,7 @@ function workerMain() {
     if (file.corrupt) return false;
     const headers = file.fetched > 0 ? { Range: `bytes=${file.fetched}-` } : {};
     let resp;
-    try { resp = await fetch(file.url, { headers, cache: 'no-store' }); }
+    try { resp = await pfetch(file.url, { headers, cache: 'no-store' }); }
     catch (e) { throw new Error('network: ' + e.message); }
     if (resp.status === 416) return false;
     if (!resp.ok) { run.warnings.push(`${file.name}: HTTP ${resp.status}`); return false; }
@@ -562,7 +562,7 @@ function workerMain() {
     return true;
   }
   async function fileSize(url) {
-    const r = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+    const r = await pfetch(url, { method: 'HEAD', cache: 'no-store' });
     if (r.status === 405 || r.status === 501) return -1; // unknown, fall back to GET
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const cl = r.headers.get('content-length');
@@ -572,7 +572,7 @@ function workerMain() {
   // ---- discovery -----------------------------------------------------------------
   const HREF = /href\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
   async function listDir(url) {
-    const r = await fetch(url, { cache: 'no-store' });
+    const r = await pfetch(url, { cache: 'no-store' });
     if (!r.ok) throw Object.assign(new Error('HTTP ' + r.status), { status: r.status });
     const html = await r.text();
     const dirs = [], files = [];
@@ -616,56 +616,104 @@ function workerMain() {
     return found;
   }
 
+  // ---- request pacing --------------------------------------------------------------
+  // Every request costs the browser a name lookup as well as a connection. A big logdir
+  // (hundreds of files) polled eagerly can trip a rate-limiting DNS resolver, which then
+  // refuses every lookup from that machine. So: at most PACE requests per second, only
+  // files that are plausibly still being written are polled each cycle, directories are
+  // re-listed rarely, and a failing server backs the interval off.
+  const PACE = 30;
+  let paceTokens = PACE, paceLast = Date.now();
+  async function pace() {
+    for (;;) {
+      const now = Date.now();
+      paceTokens = Math.min(PACE, paceTokens + (now - paceLast) * PACE / 1000); paceLast = now;
+      if (paceTokens >= 1) { paceTokens -= 1; return; }
+      await new Promise(r => setTimeout(r, Math.ceil((1 - paceTokens) * 1000 / PACE)));
+    }
+  }
+  async function pfetch(url, opts) { await pace(); return fetch(url, opts); }
+
   // ---- cycle ----------------------------------------------------------------------
-  let root = '', busy = false, timer = null, intervalMs = 15000, lastList = 0, first = true;
-  function schedule() { clearTimeout(timer); if (intervalMs > 0) timer = setTimeout(cycle, intervalMs); }
+  let root = '', busy = false, timer = null, intervalMs = 15000, lastList = 0, first = true, backoff = 1, pendingForce = false;
+  const RELIST_MS = 5 * 60000;
+  function schedule() { clearTimeout(timer); if (intervalMs > 0) timer = setTimeout(() => cycle(false), intervalMs * backoff); }
+  // How often a file is worth a HEAD: the newest file of a run is polled every cycle while
+  // its data is fresh, then less and less often; older files (a run's earlier restarts)
+  // never grow and are checked every 30 minutes only to catch the odd concurrent writer.
+  function pollDue(file, newest, now, force) {
+    if (force || file.fetched === 0) return true;
+    const since = now - (file.checked || 0);
+    if (!newest) return since >= 30 * 60000;
+    const age = now - Math.max((file.lastWall || 0) * 1000, file.grew || 0);
+    const every = age < 30 * 60000 ? 0 : age < 6 * 3600000 ? 2 * 60000 : age < 2 * 86400000 ? 10 * 60000 : 30 * 60000;
+    return since >= every;
+  }
   async function cycle(force) {
-    if (busy) return; busy = true; clearTimeout(timer);
-    const t0 = Date.now();
-    post({ type: 'progress', phase: 'listing', dirs: 0 });
+    if (busy) { if (force) pendingForce = true; return; }
+    busy = true; clearTimeout(timer);
+    const t0 = Date.now(); let netErrors = 0;
     try {
       let listing = null;
-      if (force || first || Date.now() - lastList > 60000 || runs.size === 0) { listing = await discover(root); lastList = Date.now(); }
+      if (force || first || Date.now() - lastList > RELIST_MS || runs.size === 0) {
+        post({ type: 'progress', phase: 'listing', dirs: 0 });
+        listing = await discover(root); lastList = Date.now();
+      }
       if (listing) {
         for (const [name, files] of listing) {
           const run = runs.get(name) || newRun(name);
-          for (const f of files) if (!run.files.has(f.name)) run.files.set(f.name, { name: f.name, url: f.url, fetched: 0, pending: null, pendingLen: 0, corrupt: false });
+          for (const f of files) if (!run.files.has(f.name)) run.files.set(f.name, { name: f.name, url: f.url, fetched: 0, pending: null, pendingLen: 0, corrupt: false, checked: 0, lastWall: 0, grew: 0 });
         }
         post({ type: 'runs', runs: [...runs.keys()] });
       }
-      let total = 0, done = 0, bytes = 0;
-      for (const run of runs.values()) total += run.files.size;
-      const prog = () => post({ type: 'progress', phase: 'reading', done, total, bytes });
-      await Promise.all([...runs.values()].map(run => withSlot(async () => {
-        let changed = false;
+      const now = Date.now();
+      const work = []; // [run, files(sorted), due(Set)]
+      for (const run of runs.values()) {
         const files = [...run.files.values()].sort((a, b) => a.name < b.name ? -1 : 1);
+        const due = new Set(files.filter((f, i) => !f.corrupt && pollDue(f, i === files.length - 1, now, force)));
+        if (due.size) work.push([run, files, due]);
+      }
+      let total = 0, done = 0, bytes = 0;
+      for (const w of work) total += w[2].size;
+      const prog = () => post({ type: 'progress', phase: 'reading', done, total, bytes });
+      if (total) prog();
+      await Promise.all(work.map(([run, files, due]) => withSlot(async () => {
+        let changed = false;
         // Files in a run are read in name (= time) order, and only the newest one is expected
         // to grow. If an older file changes after a newer one has been read, the merge order
         // is no longer valid, so the run is re-read from scratch (rare: concurrent writers).
         const sizes = new Map(); let reset = false;
         try {
           for (let i = 0; i < files.length; i++) {
-            const f = files[i]; if (f.fetched === 0 || f.corrupt) continue;
-            const size = await fileSize(f.url); sizes.set(f, size);
+            const f = files[i]; if (!due.has(f) || f.fetched === 0) continue;
+            const size = await fileSize(f.url); f.checked = Date.now(); sizes.set(f, size);
             if (size >= 0 && size !== f.fetched && (i < files.length - 1 || size < f.fetched)) reset = true;
           }
-        } catch (e) { run.warnings.push(e.message); post({ type: 'netError', msg: e.message }); }
+        } catch (e) { run.warnings.push(e.message); netErrors++; }
         if (reset) { resetRun(run); changed = true; }
         for (let i = 0; i < files.length; i++) {
           const file = files[i];
+          if (!due.has(file) && !reset) continue;
           try {
-            if (file.corrupt) { done++; continue; }
             const size = sizes.has(file) ? sizes.get(file) : NaN;
-            let need = file.fetched === 0 || size > file.fetched || (size < 0 && i === files.length - 1);
-            if (need) { const before = run.bytes; if (await fetchFile(run, file)) changed = true; bytes += run.bytes - before; }
-          } catch (e) { run.warnings.push(`${file.name}: ${e.message}`); changed = true; post({ type: 'netError', msg: e.message }); }
+            const need = file.fetched === 0 || size > file.fetched || (size < 0 && i === files.length - 1);
+            if (need) {
+              const before = run.bytes;
+              const firstRead = file.fetched === 0;
+              if (await fetchFile(run, file)) { changed = true; if (!firstRead) file.grew = Date.now(); }
+              file.checked = Date.now(); bytes += run.bytes - before;
+            }
+          } catch (e) { run.warnings.push(`${file.name}: ${e.message}`); changed = true; netErrors++; }
           done++; prog();
         }
         if (changed || dirty.size) flush(run);
       })));
-      post({ type: 'progress', phase: 'idle', done, total, bytes, ms: Date.now() - t0 });
+      if (netErrors) { backoff = Math.min(backoff * 2, 16); post({ type: 'netError', msg: `${netErrors} request${netErrors > 1 ? 's' : ''} failed`, retryMs: intervalMs * backoff }); }
+      else backoff = 1;
+      post({ type: 'progress', phase: 'idle', done, total, bytes, ms: Date.now() - t0, polled: total, files: [...runs.values()].reduce((a, r) => a + r.files.size, 0), error: netErrors ? 'server unreachable' : null, retryMs: netErrors ? intervalMs * backoff : 0 });
     } catch (e) { post({ type: 'log', level: 'error', msg: 'cycle failed: ' + (e.stack || e.message) }); post({ type: 'progress', phase: 'idle', error: e.message }); }
-    first = false; busy = false; schedule();
+    first = false; busy = false;
+    if (pendingForce) { pendingForce = false; cycle(true); } else schedule();
   }
   function resetRun(run) {
     for (const s of run.scalars.values()) truncScalar(s, 0);
@@ -678,9 +726,9 @@ function workerMain() {
   self.onmessage = (e) => {
     const m = e.data;
     if (m.type === 'start') { root = m.root; intervalMs = m.intervalMs; purge = m.purge; cycle(true); }
-    else if (m.type === 'refresh') cycle(true);
+    else if (m.type === 'refresh') cycle(!!m.force);
     else if (m.type === 'interval') { intervalMs = m.intervalMs; if (!busy) schedule(); }
-    else if (m.type === 'purge') { purge = m.purge; for (const run of runs.values()) { resetRun(run); flush(run); } if (!busy) cycle(false); }
+    else if (m.type === 'purge') { purge = m.purge; for (const run of runs.values()) { resetRun(run); flush(run); } cycle(true); }
   };
 }
 
@@ -829,7 +877,7 @@ worker.onmessage = (e) => {
     case 'progress': onProgress(m); break;
     case 'rootError': showRootError(m); break;
     case 'rootEmpty': showRootEmpty(m); break;
-    case 'netError': setFresh('bad', 'server unreachable, retrying'); break;
+    case 'netError': setFresh('bad', `server unreachable, retrying in ${fmtDur(m.retryMs / 1000, true)}`); break;
     case 'log': report(m.level, m.msg); break;
   }
   if (dirtyTags.size && !renderQueued) requestRender();
@@ -952,17 +1000,17 @@ function onProgress(m) {
   progress = m;
   if (m.phase === 'listing') setFresh('busy', m.dirs ? `listing ${m.dirs} directories` : 'listing');
   else if (m.phase === 'reading') setFresh('busy', `reading ${m.done}/${m.total} files${m.bytes ? ', ' + fmtBytes(m.bytes) : ''}`);
-  else { if (m.error) setFresh('bad', m.error); else if (!rootProblem) { lastUpdate = Date.now(); tickFresh(); } }
+  else { if (m.error) setFresh('bad', m.error + (m.retryMs ? `, retrying in ${fmtDur(m.retryMs / 1000, true)}` : '')); else if (!rootProblem) { lastUpdate = Date.now(); tickFresh(); } }
 }
 function tickFresh() {
   if (progress.phase !== 'idle' || progress.error || rootProblem) return;
   const s = Math.round((Date.now() - lastUpdate) / 1000);
   let total = 0; for (const r of runs.values()) total += r.bytes;
   setFresh('', `updated ${s < 2 ? 'just now' : s < 60 ? s + 's ago' : fmtDur(s, true) + ' ago'}`);
-  $('#dot').title = $('#freshText').title = `${fmtBytes(total)} of event data in ${runs.size} runs`;
+  $('#dot').title = $('#freshText').title = `${fmtBytes(total)} of event data in ${runs.size} runs` + (progress.files ? `\nlast refresh checked ${progress.polled} of ${progress.files} files; finished runs are checked less often` : '');
 }
 setInterval(tickFresh, 1000);
-$('#refreshBtn').addEventListener('click', () => worker.postMessage({ type: 'refresh' }));
+$('#refreshBtn').addEventListener('click', () => worker.postMessage({ type: 'refresh', force: true }));
 $('#refreshSel').addEventListener('change', e => { state.r = +e.target.value; worker.postMessage({ type: 'interval', intervalMs: state.r * 1000 }); saveState(); });
 $('#themeBtn').addEventListener('click', () => { state.theme = state.theme === 'dark' ? 'light' : 'dark'; applyTheme(); saveState(); });
 function applyTheme() {
