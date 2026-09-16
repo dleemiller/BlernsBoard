@@ -91,13 +91,20 @@ aside .resize:hover, aside .resize.on { background: var(--sel-2); }
 aside .disp { flex: none; border-top: 1px solid var(--border); padding-top: 4px; margin-top: 8px; }
 aside h2 { font-size: 13px; font-weight: 600; margin: 8px 4px 6px; display: flex; justify-content: space-between; color: var(--ink); }
 aside h2 .count { color: var(--ink-3); font-weight: 400; }
-.runtools { display: flex; gap: 2px; margin: 6px 0 4px; color: var(--ink-2); }
+.runtools { display: flex; align-items: center; gap: 2px; margin: 6px 0 2px; color: var(--ink-2); }
 .runtools button { padding: 1px 6px; }
+.master { flex: 1; display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 3px; cursor: pointer; user-select: none; color: var(--ink); }
+.master:hover { background: var(--sel); }
+.master .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; border: 2px solid var(--ink-2); background: var(--ink-2); }
+.master[aria-checked="false"] .sw { background: transparent; }
+.master[aria-checked="mixed"] .sw { background: linear-gradient(to right, var(--ink-2) 50%, transparent 50%); }
+.master[aria-checked="false"] { color: var(--ink-3); }
 #runs { list-style: none; margin: 0; padding: 0; flex: 0 1 auto; min-height: 80px; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
 #runs li {
   display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 3px; cursor: pointer;
   user-select: none; min-height: 24px;
 }
+#runs li[hidden] { display: none; }
 #runs li:hover { background: var(--sel); }
 #runs li.hl { background: var(--sel-2); }
 #runs li.near { background: var(--sel); }
@@ -129,6 +136,7 @@ main { overflow-y: auto; padding: 12px 16px 60px; scrollbar-gutter: stable; }
 .filterrow { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
 .filterrow input { max-width: 420px; }
 .filterrow .hint { color: var(--ink-3); white-space: nowrap; }
+.filterrow .grouptools { margin-left: auto; display: flex; gap: 2px; color: var(--ink-2); white-space: nowrap; }
 section.group { margin-bottom: 18px; }
 section.group > h3 {
   font-size: 13px; font-weight: 600; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;
@@ -215,7 +223,8 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
   <h2>Runs <span class="count" id="runCount"></span></h2>
   <input type="text" id="runFilter" placeholder="filter runs (regex)" aria-label="Filter runs" spellcheck="false">
   <div class="runtools">
-    <button data-act="all">all</button><button data-act="none">none</button><button data-act="invert">invert</button>
+    <span class="master" id="master" role="checkbox" tabindex="0" aria-checked="false" title="Toggle every listed run"><span class="sw"></span><span class="mlabel">all runs</span></span>
+    <button data-act="invert" title="Invert the selection of the listed runs">invert</button>
   </div>
   <ul id="runs"></ul>
   <div class="disp">
@@ -236,6 +245,7 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
   <div class="filterrow">
     <input type="text" id="tagFilter" placeholder="filter tags (regex)" aria-label="Filter tags" spellcheck="false">
     <span class="hint" id="tagHint"></span>
+    <span class="grouptools"><button id="collapseAll" title="Collapse every tag group">collapse all</button><button id="expandAll" title="Expand every tag group">expand all</button></span>
   </div>
   <div id="content"></div>
 </main>
@@ -705,7 +715,7 @@ for (const lvl of ['error', 'warn']) { const orig = console[lvl].bind(console); 
 const params = new URLSearchParams(location.search);
 const rootUrl = (() => { let u = new URL(params.get('logdir') || '.', location.href); u.search = ''; u.hash = ''; if (!u.pathname.endsWith('/')) u.pathname += '/'; return u.href; })();
 const storeKey = 'blernsboard:' + rootUrl;
-const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, closed: [], side: 264 };
+const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, closed: [], allClosed: false, side: 264 };
 const state = { ...DEF };
 function loadState() {
   let saved = {}; try { saved = JSON.parse(localStorage.getItem(storeKey) || '{}'); } catch {}
@@ -994,6 +1004,9 @@ function renderSidebar() {
   for (const li of existing.values()) li.remove();
   const sel = selectedRuns().length;
   $('#runCount').textContent = names.length ? `${sel}/${names.length}` : '';
+  const shown = names.filter(n => matches(runRegex, n)), on = shown.filter(isSelected).length;
+  const master = $('#master'); master.setAttribute('aria-checked', on === 0 ? 'false' : on === shown.length ? 'true' : 'mixed');
+  master.querySelector('.mlabel').textContent = runRegex ? `all ${shown.length} matching runs` : 'all runs';
 }
 function toggleRun(name, solo) {
   const all = [...runs.keys()];
@@ -1009,12 +1022,20 @@ function onRunsChanged() { saveState(); renderSidebar(); queueLayout(true); }
 $('.runtools').addEventListener('click', e => {
   const act = e.target.dataset.act; if (!act) return;
   const all = [...runs.keys()], shown = all.filter(n => matches(runRegex, n));
-  if (act === 'all') state.runs = null;
-  else if (act === 'none') state.runs = state.runs ? state.runs.filter(n => !shown.includes(n)) : all.filter(n => !shown.includes(n));
-  else { const cur = new Set(state.runs || all); for (const n of shown) { if (cur.has(n)) cur.delete(n); else cur.add(n); } state.runs = [...cur]; }
-  if (state.runs && state.runs.length === all.length) state.runs = null;
+  const cur = new Set(state.runs || all); for (const n of shown) { if (cur.has(n)) cur.delete(n); else cur.add(n); } state.runs = [...cur];
+  if (state.runs.length === all.length) state.runs = null;
   onRunsChanged();
 });
+function toggleAll() {
+  const all = [...runs.keys()], shown = all.filter(n => matches(runRegex, n));
+  const anyOn = shown.some(isSelected);
+  const cur = new Set(state.runs || all);
+  for (const n of shown) { if (anyOn) cur.delete(n); else cur.add(n); }
+  state.runs = cur.size === all.length ? null : [...cur];
+  onRunsChanged();
+}
+$('#master').addEventListener('click', toggleAll);
+$('#master').addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleAll(); } });
 $('#runFilter').addEventListener('input', e => {
   const v = e.target.value;
   try { runRegex = v ? new RegExp(v, 'i') : null; e.target.classList.remove('bad'); } catch { e.target.classList.add('bad'); return; }
@@ -1042,6 +1063,8 @@ $('#smooth').addEventListener('input', e => { state.s = +e.target.value; $('#smo
 $('#outliers').addEventListener('change', e => { state.o = e.target.checked; saveState(); allDirty(); });
 $('#sync').addEventListener('change', e => { state.sync = e.target.checked; saveState(); if (!state.sync) { globalZoom = null; } allDirty(); });
 $('#keep').addEventListener('change', e => { state.keep = e.target.checked; saveState(); worker.postMessage({ type: 'purge', purge: !state.keep }); });
+$('#collapseAll').addEventListener('click', () => { state.closed = [...$('#content').querySelectorAll('section.group')].map(sec => sec.dataset.group); state.allClosed = true; for (const sec of $('#content').querySelectorAll('section.group')) sec.classList.add('closed'); saveState(); });
+$('#expandAll').addEventListener('click', () => { state.closed = []; state.allClosed = false; for (const sec of $('#content').querySelectorAll('section.group')) sec.classList.remove('closed'); saveState(); requestRender(); });
 let tagRegex = null;
 $('#tagFilter').addEventListener('input', e => {
   const v = e.target.value;
@@ -1087,8 +1110,8 @@ function layout() {
     if (!sec) {
       sec = document.createElement('section'); sec.className = 'group'; sec.dataset.group = g;
       sec.innerHTML = '<h3><span class="chev"></span><span class="gname"></span><span class="count"></span></h3><div class="grid"></div>';
-      sec.querySelector('h3').addEventListener('click', () => { sec.classList.toggle('closed'); const c = sec.classList.contains('closed'); state.closed = c ? [...new Set([...state.closed, g])] : state.closed.filter(x => x !== g); saveState(); if (!c) requestRender(); });
-      if (state.closed.includes(g)) sec.classList.add('closed');
+      sec.querySelector('h3').addEventListener('click', () => { sec.classList.toggle('closed'); const c = sec.classList.contains('closed'); state.closed = c ? [...new Set([...state.closed, g])] : state.closed.filter(x => x !== g); if (!c) state.allClosed = false; saveState(); if (!c) requestRender(); });
+      if (state.closed.includes(g) || state.allClosed) { sec.classList.add('closed'); if (!state.closed.includes(g)) state.closed.push(g); }
     }
     sec.querySelector('.gname').textContent = g === ' pinned' ? 'Pinned' : (g || 'ungrouped');
     sec.querySelector('.count').textContent = list.length;
