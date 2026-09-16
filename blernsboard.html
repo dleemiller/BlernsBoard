@@ -134,7 +134,10 @@ input[type=checkbox] { accent-color: var(--ink-2); width: 14px; height: 14px; ma
 .ctl .val { min-width: 34px; text-align: right; color: var(--ink); }
 
 /* main */
-main { overflow-y: auto; padding: 12px 16px 60px; scrollbar-gutter: stable; }
+main { display: flex; min-height: 0; }
+.pane { flex: 1 1 0; min-width: 0; overflow-y: auto; padding: 12px 16px 60px; scrollbar-gutter: stable; }
+.pane[hidden] { display: none; }
+.pane + .pane { border-left: 1px solid var(--border); }
 .filterrow { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
 .filterrow input { max-width: 420px; }
 .filterrow .hint { color: var(--ink-3); white-space: nowrap; }
@@ -152,6 +155,7 @@ main[data-cols="1"] .grid { grid-template-columns: 1fr; }
 main[data-cols="2"] .grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
 main[data-cols="3"] .grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
 main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
+.pane[data-pane="1"] .filterrow input { max-width: 420px; }
 .card {
   background: var(--card); border: 1px solid var(--border); border-radius: 4px; height: 240px;
   display: flex; flex-direction: column; min-width: 0; position: relative;
@@ -240,6 +244,7 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
     <div class="row"><span>columns</span><span class="seg" id="cols" role="group" aria-label="Columns"><button data-v="0">auto</button><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button></span></div>
     <label><span>ignore outliers when fitting y</span><input type="checkbox" id="outliers"></label>
     <label title="Linear charts only; log charts have no zero"><span>y axis includes 0</span><input type="checkbox" id="zero"></label>
+    <label title="Two halves with their own tag filters, for example train on the left and val on the right. Columns apply to each half."><span>split view, two tag filters</span><input type="checkbox" id="split"></label>
     <label><span>sync zoom across charts</span><input type="checkbox" id="sync"></label>
     <label title="After a restart, TensorBoard-style logs contain steps twice. Off drops the older copy; on keeps every point in the order it was written."><span>keep overwritten points</span><input type="checkbox" id="keep"></label>
   </div>
@@ -248,12 +253,22 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
 </aside>
 <div class="tip" id="tip" role="status"></div>
 <main id="main">
-  <div class="filterrow">
-    <input type="text" id="tagFilter" placeholder="filter tags (regex)" aria-label="Filter tags" spellcheck="false">
-    <span class="hint" id="tagHint"></span>
-    <span class="grouptools"><button id="collapseAll" title="Collapse every tag group">collapse all</button><button id="expandAll" title="Expand every tag group">expand all</button></span>
+  <div class="pane" data-pane="0">
+    <div class="filterrow">
+      <input type="text" class="tagFilter" id="tagFilter" placeholder="filter tags (regex)" aria-label="Filter tags" spellcheck="false">
+      <span class="hint"></span>
+      <span class="grouptools"><button class="collapseAll" title="Collapse every tag group">collapse all</button><button class="expandAll" title="Expand every tag group">expand all</button></span>
+    </div>
+    <div class="content" id="content"></div>
   </div>
-  <div id="content"></div>
+  <div class="pane" data-pane="1" hidden>
+    <div class="filterrow">
+      <input type="text" class="tagFilter" placeholder="filter tags for the right half (regex)" aria-label="Filter tags, right half" spellcheck="false">
+      <span class="hint"></span>
+      <span class="grouptools"><button class="collapseAll" title="Collapse every tag group">collapse all</button><button class="expandAll" title="Expand every tag group">expand all</button></span>
+    </div>
+    <div class="content"></div>
+  </div>
 </main>
 
 <script>
@@ -776,7 +791,7 @@ for (const lvl of ['error', 'warn']) { const orig = console[lvl].bind(console); 
 const params = new URLSearchParams(location.search);
 const rootUrl = (() => { let u = new URL(params.get('logdir') || '.', location.href); u.search = ''; u.hash = ''; if (!u.pathname.endsWith('/')) u.pathname += '/'; return u.href; })();
 const storeKey = 'blernsboard:' + rootUrl;
-const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, closed: [], allClosed: false, side: 264, z: false };
+const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, closed: [], allClosed: false, side: 264, z: false, split: false, tags2: '' };
 const state = { ...DEF };
 function loadState() {
   let saved = {}; try { saved = JSON.parse(localStorage.getItem(storeKey) || '{}'); } catch {}
@@ -785,6 +800,8 @@ function loadState() {
   if ([...h.keys()].length) {
     if (h.has('runs')) state.runs = h.get('runs') === '' ? [] : h.get('runs').split(',').map(decodeURIComponent);
     if (h.has('tags')) state.tags = h.get('tags');
+    if (h.has('tags2')) state.tags2 = h.get('tags2');
+    if (h.has('split')) state.split = h.get('split') === '1';
     if (h.has('s')) state.s = +h.get('s') || 0;
     if (h.has('x')) state.x = h.get('x');
     if (h.has('y')) state.y = h.get('y');
@@ -807,6 +824,8 @@ function saveState() {
     const h = new URLSearchParams();
     if (state.runs) h.set('runs', state.runs.map(encodeURIComponent).join(','));
     if (state.tags) h.set('tags', state.tags);
+    if (state.tags2) h.set('tags2', state.tags2);
+    if (state.split) h.set('split', '1');
     if (state.s) h.set('s', String(state.s));
     if (state.x !== 'step') h.set('x', state.x);
     if (state.y !== 'lin') h.set('y', state.y);
@@ -879,7 +898,7 @@ worker.onmessage = (e) => {
       if (!s) { s = { kind: m.type, run, tag: m.tag, items: [], version: 0 }; map.set(m.tag, s); queueLayout(); }
       s.items.length = Math.min(s.items.length, m.truncateTo); s.items.push(...m.items); s.version++; run.version++;
       if (s.items.length) run.lastStep = Math.max(run.lastStep, s.items[s.items.length - 1].step);
-      dirtyTags.add(tagKey(m.type, m.tag) + ' ' + m.run); queueSidebar();
+      dirtyTags.add(tagKey(m.type, m.tag) + '\u0000' + m.run); queueSidebar();
       break;
     }
     case 'reset': { const run = getRun(m.run); run.scalars.clear(); run.hists.clear(); run.texts.clear(); run.lastStep = -Infinity; run.version++; queueLayout(); break; }
@@ -1133,14 +1152,19 @@ $('#outliers').addEventListener('change', e => { state.o = e.target.checked; sav
 $('#zero').addEventListener('change', e => { state.z = e.target.checked; saveState(); allDirty(); });
 $('#sync').addEventListener('change', e => { state.sync = e.target.checked; saveState(); if (!state.sync) { globalZoom = null; } allDirty(); });
 $('#keep').addEventListener('change', e => { state.keep = e.target.checked; saveState(); worker.postMessage({ type: 'purge', purge: !state.keep }); });
-$('#collapseAll').addEventListener('click', () => { state.closed = [...$('#content').querySelectorAll('section.group')].map(sec => sec.dataset.group); state.allClosed = true; for (const sec of $('#content').querySelectorAll('section.group')) sec.classList.add('closed'); saveState(); });
-$('#expandAll').addEventListener('click', () => { state.closed = []; state.allClosed = false; for (const sec of $('#content').querySelectorAll('section.group')) sec.classList.remove('closed'); saveState(); requestRender(); });
-let tagRegex = null;
-$('#tagFilter').addEventListener('input', e => {
-  const v = e.target.value;
-  try { tagRegex = v ? new RegExp(v, 'i') : null; e.target.classList.remove('bad'); } catch { e.target.classList.add('bad'); return; }
-  state.tags = v; saveState(); queueLayout(true);
-});
+const panes = [...document.querySelectorAll('.pane')].map((el, id) => ({ id, el, content: el.querySelector('.content'), input: el.querySelector('.tagFilter'), hint: el.querySelector('.hint'), regex: null }));
+for (const pane of panes) {
+  pane.el.querySelector('.collapseAll').addEventListener('click', () => { const secs = [...pane.content.querySelectorAll('section.group')]; state.closed = [...new Set([...state.closed, ...secs.map(sec => sec.dataset.group)])]; state.allClosed = true; for (const sec of secs) sec.classList.add('closed'); saveState(); });
+  pane.el.querySelector('.expandAll').addEventListener('click', () => { const secs = [...pane.content.querySelectorAll('section.group')]; const names = new Set(secs.map(sec => sec.dataset.group)); state.closed = state.closed.filter(g => !names.has(g)); state.allClosed = false; for (const sec of secs) sec.classList.remove('closed'); saveState(); requestRender(); });
+  pane.input.addEventListener('input', e => {
+    const v = e.target.value;
+    try { pane.regex = v ? new RegExp(v, 'i') : null; e.target.classList.remove('bad'); } catch { e.target.classList.add('bad'); return; }
+    if (pane.id === 0) state.tags = v; else state.tags2 = v;
+    saveState(); queueLayout(true);
+  });
+}
+$('#split').addEventListener('change', e => { state.split = e.target.checked; saveState(); applySplit(); });
+function applySplit() { panes[1].el.hidden = !state.split; queueLayout(true); }
 
 // ---- layout: groups and cards ----------------------------------------------------
 const cards = new Map(); // key -> card
@@ -1148,31 +1172,36 @@ let globalZoom = null;
 function queueLayout(now) { clearTimeout(layoutTimer); layoutTimer = setTimeout(layout, now ? 0 : 200); }
 function layout() {
   layoutTimer = null;
-  const content = $('#content');
-  const sel = selectedRuns();
   if (!runs.size) return; // still discovering; the state card is shown by progress/rootError
+  const sel = selectedRuns();
+  const seen = new Set();
+  for (const pane of panes) { if (pane.el.hidden) continue; layoutPane(pane, sel, seen); }
+  for (const [k, c] of cards) if (!seen.has(k)) { c.el.remove(); io.unobserve(c.plot || c.el); ro.unobserve(c.plot || c.el); cards.delete(k); }
+  requestRender();
+}
+function layoutPane(pane, sel, seen) {
+  const content = pane.content, tagRegex = pane.regex;
   if (content.querySelector('.state')) content.innerHTML = '';
   // collect visible entries
-  const entries = []; // {key, kind, tag, run|null, group}
+  const entries = []; // {key, kind, tag, run|null}
   const scalarTags = new Map(); // tag -> runs
   for (const r of sel) {
     for (const tag of r.scalars.keys()) if (matches(tagRegex, tag)) { if (!scalarTags.has(tag)) scalarTags.set(tag, []); scalarTags.get(tag).push(r); }
-    for (const tag of r.hists.keys()) if (matches(tagRegex, tag)) entries.push({ key: tagKey('hist', tag) + ' ' + r.name, kind: 'hist', tag, run: r });
-    for (const tag of r.texts.keys()) if (matches(tagRegex, tag)) entries.push({ key: tagKey('text', tag) + ' ' + r.name, kind: 'text', tag, run: r });
+    for (const tag of r.hists.keys()) if (matches(tagRegex, tag)) entries.push({ key: tagKey('hist', tag) + '\u0000' + r.name, kind: 'hist', tag, run: r });
+    for (const tag of r.texts.keys()) if (matches(tagRegex, tag)) entries.push({ key: tagKey('text', tag) + '\u0000' + r.name, kind: 'text', tag, run: r });
   }
   for (const [tag, rs] of scalarTags) entries.push({ key: tag, kind: 'scalar', tag, runs: rs });
   let totalTags = 0; for (const r of sel) totalTags += r.scalars.size + r.hists.size + r.texts.size;
-  $('#tagHint').textContent = tagRegex ? `${entries.length} of ${totalTags} shown` : '';
+  pane.hint.textContent = tagRegex ? `${entries.length} of ${totalTags} shown` : '';
   // group
   const groups = new Map();
   for (const e of entries) {
     const pinned = state.pin.includes(e.key);
-    const g = pinned ? ' pinned' : (e.tag.includes('/') ? e.tag.slice(0, e.tag.indexOf('/')) : '');
+    const g = pinned ? '\u0000pinned' : (e.tag.includes('/') ? e.tag.slice(0, e.tag.indexOf('/')) : '');
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g).push(e);
   }
-  const order = [...groups.keys()].sort((a, b) => a === ' pinned' ? -1 : b === ' pinned' ? 1 : natCmp(a, b));
-  const seen = new Set();
+  const order = [...groups.keys()].sort((a, b) => a === '\u0000pinned' ? -1 : b === '\u0000pinned' ? 1 : natCmp(a, b));
   let sectionIdx = 0;
   for (const g of order) {
     const list = groups.get(g).sort((a, b) => natCmp(a.tag, b.tag) || natCmp(a.run ? a.run.name : '', b.run ? b.run.name : ''));
@@ -1183,14 +1212,15 @@ function layout() {
       sec.querySelector('h3').addEventListener('click', () => { sec.classList.toggle('closed'); const c = sec.classList.contains('closed'); state.closed = c ? [...new Set([...state.closed, g])] : state.closed.filter(x => x !== g); if (!c) state.allClosed = false; saveState(); if (!c) requestRender(); });
       if (state.closed.includes(g) || state.allClosed) { sec.classList.add('closed'); if (!state.closed.includes(g)) state.closed.push(g); }
     }
-    sec.querySelector('.gname').textContent = g === ' pinned' ? 'Pinned' : (g || 'ungrouped');
+    sec.querySelector('.gname').textContent = g === '\u0000pinned' ? 'Pinned' : (g || 'ungrouped');
     sec.querySelector('.count').textContent = list.length;
     const grid = sec.querySelector('.grid');
     let cursor = grid.firstChild;
     for (const e of list) {
-      let card = cards.get(e.key);
-      if (!card) { card = createCard(e); cards.set(e.key, card); }
-      card.entry = e; seen.add(e.key);
+      const id = pane.id + '\u0001' + e.key;
+      let card = cards.get(id);
+      if (!card) { card = createCard(e); cards.set(id, card); }
+      card.entry = e; seen.add(id);
       if (card.el !== cursor) grid.insertBefore(card.el, cursor); else cursor = cursor.nextSibling;
       updateCardTitle(card);
       markDirty(card);
@@ -1200,7 +1230,6 @@ function layout() {
     sectionIdx++;
   }
   while (content.children.length > sectionIdx) content.lastChild.remove();
-  for (const [k, c] of cards) if (!seen.has(k)) { c.el.remove(); io.unobserve(c.plot || c.el); ro.unobserve(c.plot || c.el); cards.delete(k); }
   if (!entries.length) {
     const div = document.createElement('div'); div.className = 'empty';
     if (!sel.length) { div.textContent = runs.size ? 'No runs selected.' : 'No runs found.'; if (runs.size) { const b = document.createElement('button'); b.textContent = 'select all runs'; b.onclick = () => { state.runs = null; $('#runFilter').value = ''; runRegex = null; onRunsChanged(); }; div.appendChild(b); } }
@@ -1208,11 +1237,10 @@ function layout() {
     else div.textContent = 'The selected runs have no scalar, histogram or text summaries yet.';
     content.appendChild(div);
   }
-  requestRender();
 }
-function cssEsc(s) { return s.replace(/["\\ ]/g, c => '\\' + c.charCodeAt(0).toString(16) + ' '); }
+function cssEsc(s) { return s.replace(/["\\\u0000]/g, c => '\\' + c.charCodeAt(0).toString(16) + ' '); }
 
-const io = new IntersectionObserver(es => { for (const e of es) { const c = e.target._card; if (!c) continue; c.visible = e.isIntersecting; if (c.visible && c.dirty) requestRender(); } }, { root: $('#main'), rootMargin: '200px' });
+const io = new IntersectionObserver(es => { for (const e of es) { const c = e.target._card; if (!c) continue; c.visible = e.isIntersecting; if (c.visible && c.dirty) requestRender(); } }, { rootMargin: '200px' });
 const ro = new ResizeObserver(es => { for (const e of es) { const c = e.target._card; if (!c) continue; c.w = e.contentRect.width; c.h = e.contentRect.height; markDirty(c); } requestRender(); });
 
 function createCard(e) {
@@ -1739,10 +1767,12 @@ document.title = 'BlernsBoard · ' + rootLabel().split('/').filter(Boolean).pop(
 $('#smooth').value = state.s; $('#smoothVal').textContent = state.s.toFixed(2);
 $('#outliers').checked = state.o; $('#zero').checked = !!state.z; $('#sync').checked = state.sync; $('#keep').checked = state.keep;
 $('#refreshSel').value = String([5, 15, 30, 60, 0].includes(state.r) ? state.r : 15);
-$('#tagFilter').value = state.tags; try { tagRegex = state.tags ? new RegExp(state.tags, 'i') : null; } catch { tagRegex = null; }
+panes[0].input.value = state.tags; panes[1].input.value = state.tags2;
+for (const pane of panes) { const v = pane.id === 0 ? state.tags : state.tags2; try { pane.regex = v ? new RegExp(v, 'i') : null; } catch { pane.regex = null; pane.input.classList.add('bad'); } }
+$('#split').checked = !!state.split; panes[1].el.hidden = !state.split;
 $('#main').dataset.cols = state.cols || '';
 syncX(); syncY(); syncCols();
-$('#content').innerHTML = '<div class="state"><h2>Reading logs</h2><p>Listing <code></code></p></div>'; $('#content code').textContent = rootLabel();
+panes[0].content.innerHTML = '<div class="state"><h2>Reading logs</h2><p>Listing <code></code></p></div>'; panes[0].content.querySelector('code').textContent = rootLabel();
 worker.postMessage({ type: 'start', root: rootUrl, intervalMs: state.r * 1000, purge: !state.keep });
 document.addEventListener('visibilitychange', () => worker.postMessage({ type: 'visible', visible: !document.hidden }));
 // sidebar resize
