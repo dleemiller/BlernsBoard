@@ -161,7 +161,9 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
 .card .title .pre { color: var(--ink-3); }
 .card .title .run { color: var(--ink-2); }
 .card .acts { display: flex; gap: 0; opacity: 0; transition: opacity .1s; }
-.card:hover .acts, .card:focus-within .acts, .card .acts:has([aria-pressed="true"]) { opacity: 1; }
+.card:hover .acts, .card:focus-within .acts, .card.zoomed .acts, .card .acts:has([aria-pressed="true"]) { opacity: 1; }
+.card .acts button[hidden] { display: none; }
+.card .acts .zoomb { color: var(--ink); border: 1px solid var(--border-2); margin-right: 4px; }
 .card .acts button { padding: 2px 5px; color: var(--ink-3); display: inline-flex; align-items: center; line-height: 1; }
 .card .acts button:hover { color: var(--ink); }
 .card .acts button[aria-pressed="true"] { color: var(--ink); }
@@ -172,7 +174,7 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
 .plot canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .plot .note { position: absolute; left: 10px; top: 6px; color: var(--ink-3); font-size: 11px; pointer-events: none; }
 .tip {
-  position: absolute; z-index: 3; pointer-events: none; display: none;
+  position: fixed; z-index: 20; pointer-events: none; display: none;
   background: var(--card-2); border: 1px solid var(--border-2); border-radius: 4px; padding: 6px 8px;
   font-size: 12px; min-width: 140px; max-width: 320px; box-shadow: 0 4px 16px rgba(0,0,0,.25);
 }
@@ -241,6 +243,7 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
   </div>
   <div class="resize" id="resize" title="Drag to resize"></div>
 </aside>
+<div class="tip" id="tip" role="status"></div>
 <main id="main">
   <div class="filterrow">
     <input type="text" id="tagFilter" placeholder="filter tags (regex)" aria-label="Filter tags" spellcheck="false">
@@ -1149,24 +1152,25 @@ function createCard(e) {
   const el = document.createElement('div'); el.className = 'card'; el.tabIndex = 0;
   const card = { el, key: e.key, kind: e.kind, entry: e, dirty: true, visible: false, zoom: null, log: null, w: 0, h: 0 };
   const head = document.createElement('div'); head.className = 'head';
-  head.innerHTML = `<span class="title"></span><span class="acts">${e.kind === 'scalar' ? '<button class="logb txt" title="log y axis for this chart" aria-label="Log y axis" aria-pressed="false">log</button><button class="csv" title="Download visible data as CSV" aria-label="Download CSV">' + SVG.csv + '</button>' : ''}<button class="big" title="Expand" aria-label="Expand" aria-pressed="false">${SVG.expand}</button><button class="pin" title="Pin to top" aria-label="Pin" aria-pressed="false">${SVG.pin}</button></span>`;
+  head.innerHTML = `<span class="title"></span><span class="acts">${e.kind === 'scalar' ? '<button class="zoomb txt" title="Show the full range again (double-click or Escape also reset)" aria-label="Reset zoom" hidden>reset zoom</button><button class="logb txt" title="log y axis for this chart" aria-label="Log y axis" aria-pressed="false">log</button><button class="csv" title="Download visible data as CSV" aria-label="Download CSV">' + SVG.csv + '</button>' : ''}<button class="big" title="Expand" aria-label="Expand" aria-pressed="false">${SVG.expand}</button><button class="pin" title="Pin to top" aria-label="Pin" aria-pressed="false">${SVG.pin}</button></span>`;
   el.appendChild(head);
   head.querySelector('.pin').addEventListener('click', () => { const i = state.pin.indexOf(card.key); if (i >= 0) state.pin.splice(i, 1); else state.pin.push(card.key); saveState(); syncCardActs(card); queueLayout(true); });
   head.querySelector('.big').addEventListener('click', () => { el.classList.toggle('big'); syncCardActs(card); });
   if (e.kind === 'scalar') {
     head.querySelector('.logb').addEventListener('click', () => { const cur = card.log != null ? card.log : state.y === 'log'; card.log = !cur; if (card.log === (state.y === 'log')) card.log = null; syncCardActs(card); markDirty(card); requestRender(); });
     head.querySelector('.csv').addEventListener('click', () => downloadCsv(card));
+    head.querySelector('.zoomb').addEventListener('click', () => setZoom(card, null));
     const plot = document.createElement('div'); plot.className = 'plot';
-    plot.innerHTML = '<canvas class="data"></canvas><canvas class="ov"></canvas><div class="note"></div><div class="tip"></div>';
+    plot.innerHTML = '<canvas class="data"></canvas><canvas class="ov"></canvas><div class="note"></div>';
     el.appendChild(plot);
-    card.plot = plot; card.cv = plot.querySelector('.data'); card.ov = plot.querySelector('.ov'); card.tip = plot.querySelector('.tip'); card.note = plot.querySelector('.note');
+    card.plot = plot; card.cv = plot.querySelector('.data'); card.ov = plot.querySelector('.ov'); card.tip = $('#tip'); card.note = plot.querySelector('.note');
     plot._card = card; io.observe(plot); ro.observe(plot);
     bindPlotEvents(card);
   } else if (e.kind === 'hist') {
     const plot = document.createElement('div'); plot.className = 'plot';
-    plot.innerHTML = '<canvas class="data"></canvas><canvas class="ov"></canvas><div class="note"></div><div class="tip"></div>';
+    plot.innerHTML = '<canvas class="data"></canvas><canvas class="ov"></canvas><div class="note"></div>';
     el.appendChild(plot);
-    card.plot = plot; card.cv = plot.querySelector('.data'); card.ov = plot.querySelector('.ov'); card.tip = plot.querySelector('.tip'); card.note = plot.querySelector('.note');
+    card.plot = plot; card.cv = plot.querySelector('.data'); card.ov = plot.querySelector('.ov'); card.tip = $('#tip'); card.note = plot.querySelector('.note');
     plot._card = card; io.observe(plot); ro.observe(plot);
     bindHistEvents(card);
   } else {
@@ -1267,6 +1271,7 @@ function drawScalar(card) {
     if (!zoom) { if (lo < x0) x0 = lo; if (hi > x1) x1 = hi; }
   }
   if (zoom) { x0 = zoom[0]; x1 = zoom[1]; }
+  card.el.classList.toggle('zoomed', !!zoom); card.el.querySelector('.zoomb').hidden = !zoom;
   card.render = null; card.note.textContent = '';
   if (!series.length) { text(ctx, 'no data', w / 2, h / 2, 'center', css('--ink-3')); return; }
   if (!(x1 > x0)) { x0 -= 0.5; x1 += 0.5; }
@@ -1455,10 +1460,7 @@ function drawHover(card, px, py) {
   tip.appendChild(table);
   if (shown.length < rows.length) { const more = document.createElement('div'); more.className = 'th'; more.style.marginTop = '4px'; more.textContent = `${rows.length - shown.length} more run${rows.length - shown.length > 1 ? 's' : ''} not listed`; tip.appendChild(more); }
   tip.classList.add('on');
-  const tw = tip.offsetWidth, thh = tip.offsetHeight;
-  let left = snapX + 12; if (left + tw > w - 4) left = snapX - 12 - tw; if (left < 4) left = 4;
-  let top = Math.min(Math.max(py - thh / 2, 4), h - thh - 4); if (top < 4) top = 4;
-  tip.style.left = left + 'px'; tip.style.top = top + 'px';
+  placeTip(card, tip, snapX, py);
   broadcastX(best.row.x, card);
   markRunRow(best.row.S.r.name);
 }
@@ -1466,6 +1468,25 @@ let markedRow = null;
 function markRunRow(name) {
   if (markedRow === name) return; markedRow = name;
   for (const li of $('#runs').children) li.classList.toggle('near', li.dataset.run === name);
+}
+// The tooltip never covers the chart being read: it sits beside the card (right, then left),
+// and only when the card spans the viewport does it go below or above it.
+function placeTip(card, tip, px, py) {
+  const rc = card.el.getBoundingClientRect(), plot = card.plot.getBoundingClientRect();
+  const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+  const tw = tip.offsetWidth, th = tip.offsetHeight, gap = 8;
+  const cy = plot.top + py;
+  let left, top;
+  if (rc.right + gap + tw <= vw - 4) left = rc.right + gap;
+  else if (rc.left - gap - tw >= 4) left = rc.left - gap - tw;
+  if (left != null) top = Math.min(Math.max(cy - th / 2, 4), vh - th - 4);
+  else {
+    left = Math.min(Math.max(plot.left + px - tw / 2, 4), vw - tw - 4);
+    if (rc.bottom + gap + th <= vh - 4) top = rc.bottom + gap;
+    else if (rc.top - gap - th >= 4) top = rc.top - gap - th;
+    else top = Math.min(Math.max(cy - th / 2, 4), vh - th - 4);
+  }
+  tip.style.left = Math.round(left) + 'px'; tip.style.top = Math.round(top) + 'px';
 }
 function broadcastX(x, from) {
   if (x === linkedX) return; linkedX = x;
@@ -1596,9 +1617,7 @@ function bindHistEvents(card) {
       const tr = document.createElement('tr'); const a = document.createElement('td'); a.className = 'n'; a.textContent = k; const b = document.createElement('td'); b.className = 'v num'; b.textContent = v; tr.appendChild(b); tr.appendChild(a); tb.appendChild(tr);
     }
     tip.appendChild(tb); tip.classList.add('on');
-    const tw = tip.offsetWidth, thh = tip.offsetHeight;
-    let left = px + 12; if (left + tw > w - 4) left = px - 12 - tw; if (left < 4) left = 4;
-    tip.style.left = left + 'px'; tip.style.top = Math.min(Math.max(py - thh / 2, 4), h - thh - 4) + 'px';
+    placeTip(card, tip, px, py);
   });
   plot.addEventListener('pointerleave', () => { clearOverlay(card); card.tip.classList.remove('on'); });
 }
