@@ -1000,7 +1000,8 @@ function renderSidebar() {
     const meta = li.querySelector('.meta');
     meta.textContent = Number.isFinite(r.lastStep) ? fmtSI(r.lastStep, r.lastStep >= 1e4 ? 1 : 0) : '';
     const ign = Object.entries(r.ignored).map(([k, v]) => `${v} ${k} summaries not shown`).join('\n');
-    li.title = `${name}\n${r.scalars.size} scalar, ${r.hists.size} histogram, ${r.texts.size} text tags · ${fmtBytes(r.bytes)}${Number.isFinite(r.lastStep) ? '\nlast step ' + fmtStep(r.lastStep) : ''}${r.lastWall ? '\nlast write ' + fmtDate(r.lastWall) : ''}${ign ? '\n' + ign : ''}${r.warnings.length ? '\n\n' + r.warnings.join('\n') : ''}\n\nclick: toggle · alt-click: only this run · double-click swatch: change colour`;
+    const kinds = [[r.scalars.size, 'scalar'], [r.hists.size, 'histogram'], [r.texts.size, 'text']].filter(k => k[0]).map(k => `${k[0]} ${k[1]}`).join(', ') || 'no';
+    li.title = `${name}\n${kinds} tags · ${fmtBytes(r.bytes)}${Number.isFinite(r.lastStep) ? '\nlast step ' + fmtStep(r.lastStep) : ''}${r.lastWall ? '\nlast write ' + fmtDate(r.lastWall) : ''}${ign ? '\n' + ign : ''}${r.warnings.length ? '\n\n' + r.warnings.join('\n') : ''}\n\nclick: toggle · alt-click: only this run · double-click swatch: change colour`;
     const w = li.querySelector('.warn'); w.hidden = !r.warnings.length;
     ul.appendChild(li);
   }
