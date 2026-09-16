@@ -1,6 +1,6 @@
 # BlernsBoard
 
-A single HTML file that reads TensorBoard event logs (`events.out.tfevents.*`)
+A single HTML file that reads TensorBoard event logs
 
 ## Run it
 
