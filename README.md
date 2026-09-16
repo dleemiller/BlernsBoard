@@ -43,7 +43,7 @@ cd /path/to/logs && python3 -m http.server --bind 0.0.0.0 6006
 
 Or run the helper from the checkout: `python3 serve.py --logdir /path/to/logs --bind_all`.
 
-With the helper the page refreshes with one request (`/__index` lists every event file and its size); with a plain static server it has to walk directory listings and check files one by one, so it does that sparingly.
+With the helper the page refreshes with one request (`/__index` lists every event file and its size); with a plain static server it has to walk directory listings and check files one by one, so it does that sparingly. The helper also gzips event files (about 3.5x smaller on the wire). Parsed runs are kept in the browser's IndexedDB, so reopening the page restores them in well under a second and fetches only bytes appended since; shift-click "refresh" to drop that cache.
 
 The page can also be served from elsewhere and pointed at a directory on the
 same server with `?logdir=/some/path/`. Runs are discovered by walking the

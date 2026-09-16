@@ -224,7 +224,7 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
   <select id="refreshSel" title="Refresh interval" aria-label="Refresh interval">
     <option value="5">5s</option><option value="15">15s</option><option value="30">30s</option><option value="60">60s</option><option value="0">off</option>
   </select>
-  <button id="refreshBtn" title="Refresh now" aria-label="Refresh now">refresh</button>
+  <button id="refreshBtn" title="Refresh now. Shift-click: forget the cached data and re-read every file." aria-label="Refresh now">refresh</button>
   <button id="themeBtn" title="Switch theme" aria-label="Switch theme">light</button>
 </header>
 <aside>
@@ -476,6 +476,7 @@ function workerMain() {
     }
     dirty.clear();
     post({ type: 'runstat', run: run.name, warnings: run.warnings, ignored: run.ignored, bytes: run.bytes, files: [...run.files.values()].map(f => ({ name: f.name, fetched: f.fetched, corrupt: f.corrupt })) });
+    scheduleSave(run);
   }
 
   function histFromProto(h) {
@@ -640,9 +641,10 @@ function workerMain() {
   // re-listed rarely, and a failing server backs the interval off.
   // 30/s against an unknown static server; 80/s when serve.py's index is in use, since its
   // keep-alive connections mean the browser resolves the host a handful of times, not per request.
-  const paceRate = () => indexMode === true ? 80 : 30;
+  const paceRate = () => 30;
   let paceTokens = 30, paceLast = Date.now();
   async function pace() {
+    if (indexMode === true) return;
     for (;;) {
       const PACE = paceRate(), now = Date.now();
       paceTokens = Math.min(PACE, paceTokens + (now - paceLast) * PACE / 1000); paceLast = now;
@@ -651,6 +653,67 @@ function workerMain() {
     }
   }
   async function pfetch(url, opts) { await pace(); return fetch(url, opts); }
+
+  // ---- persistence: parsed runs live in IndexedDB, so a reload restores them in well under a
+  //      second and only the bytes that were appended since are fetched ------------------------
+  const CACHE_FORMAT = 1;
+  let db = null; const dirtyRuns = new Set(); let saveTimer = null;
+  function openDb() {
+    return new Promise(res => {
+      try {
+        const req = indexedDB.open('blernsboard', 1);
+        req.onupgradeneeded = () => { req.result.createObjectStore('runs'); };
+        req.onsuccess = () => res(req.result); req.onerror = () => res(null); req.onblocked = () => res(null);
+      } catch { res(null); }
+    });
+  }
+  const runKey = (name) => root + '\u0001' + name;
+  function serializeRun(run) {
+    return {
+      format: CACHE_FORMAT, purge, root, name: run.name, savedAt: Date.now(), bytes: run.bytes, warnings: run.warnings, ignored: run.ignored, plugins: [...run.plugins],
+      files: [...run.files.values()].map(f => ({ name: f.name, url: f.url, fetched: f.fetched, pending: f.pending, lastWall: f.lastWall, corrupt: f.corrupt })),
+      scalars: [...run.scalars.values()].map(x => ({ tag: x.tag, steps: x.steps.slice(0, x.n), values: x.values.slice(0, x.n), walls: x.walls.slice(0, x.n) })),
+      hists: [...run.hists.values()].map(x => ({ tag: x.tag, items: x.items })),
+      texts: [...run.texts.values()].map(x => ({ tag: x.tag, items: x.items })),
+    };
+  }
+  function restoreRun(rec) {
+    const run = newRun(rec.name);
+    run.bytes = rec.bytes || 0; run.warnings = rec.warnings || []; run.ignored = rec.ignored || {}; run.plugins = new Map(rec.plugins || []);
+    for (const f of rec.files) run.files.set(f.name, { name: f.name, url: f.url, fetched: f.fetched, pending: f.pending || null, pendingLen: f.pending ? f.pending.length : 0, corrupt: !!f.corrupt, checked: 0, lastWall: f.lastWall || 0, grew: 0, size: -1 });
+    for (const x of rec.scalars) { const ser = scalarSeries(run, x.tag); ser.steps = x.steps; ser.values = x.values; ser.walls = x.walls; ser.n = x.steps.length; }
+    for (const x of rec.hists) listSeries(run.hists, run, x.tag, 'hist').items = x.items;
+    for (const x of rec.texts) listSeries(run.texts, run, x.tag, 'text').items = x.items;
+    return run;
+  }
+  function postWholeRun(run) {
+    for (const x of run.scalars.values()) { const steps = x.steps.slice(0, x.n), values = x.values.slice(0, x.n), walls = x.walls.slice(0, x.n); post({ type: 'scalar', run: run.name, tag: x.tag, truncateTo: 0, steps, values, walls }, [steps.buffer, values.buffer, walls.buffer]); }
+    for (const x of run.hists.values()) post({ type: 'hist', run: run.name, tag: x.tag, truncateTo: 0, items: x.items });
+    for (const x of run.texts.values()) post({ type: 'text', run: run.name, tag: x.tag, truncateTo: 0, items: x.items });
+    post({ type: 'runstat', run: run.name, warnings: run.warnings, ignored: run.ignored, bytes: run.bytes, files: [...run.files.values()].map(f => ({ name: f.name, fetched: f.fetched, corrupt: f.corrupt })) });
+  }
+  async function restoreAll() {
+    db = await openDb(); if (!db) return 0;
+    const recs = await new Promise(res => { try { const tx = db.transaction('runs', 'readonly'); const req = tx.objectStore('runs').getAll(); req.onsuccess = () => res(req.result || []); req.onerror = () => res([]); } catch { res([]); } });
+    let n = 0;
+    for (const rec of recs) {
+      if (!rec || rec.format !== CACHE_FORMAT || rec.root !== root || rec.purge !== purge || runs.has(rec.name)) continue;
+      try { restoreRun(rec); n++; } catch (e) { post({ type: 'log', level: 'warn', msg: `cache: could not restore ${rec.name}: ${e.message}` }); }
+    }
+    if (n) { post({ type: 'runs', runs: [...runs.keys()], index: false, restored: n }); for (const run of runs.values()) postWholeRun(run); }
+    return n;
+  }
+  function scheduleSave(run) { dirtyRuns.add(run); if (!saveTimer) saveTimer = setTimeout(saveDirty, 1500); }
+  function saveDirty() {
+    saveTimer = null; if (!db || !dirtyRuns.size) return;
+    const batch = [...dirtyRuns]; dirtyRuns.clear();
+    try {
+      const tx = db.transaction('runs', 'readwrite'), store = tx.objectStore('runs');
+      for (const run of batch) { if (runs.has(run.name)) store.put(serializeRun(run), runKey(run.name)); else store.delete(runKey(run.name)); }
+      tx.onerror = () => post({ type: 'log', level: 'warn', msg: 'cache: save failed: ' + (tx.error && tx.error.message) });
+    } catch (e) { post({ type: 'log', level: 'warn', msg: 'cache: ' + e.message }); }
+  }
+  function dropRun(run) { runs.delete(run.name); post({ type: 'removeRun', run: run.name }); scheduleSave(run); }
 
   // ---- index endpoint (serve.py): one request lists every file with its size ----------
   let indexMode = null; // null = untested, true = use __index, false = walk directory listings
@@ -716,6 +779,7 @@ function workerMain() {
             file.size = f.size != null ? f.size : -1;
           }
         }
+        if (indexMode === true || force) for (const run of [...runs.values()]) if (!listing.has(run.name)) dropRun(run);
         post({ type: 'runs', runs: [...runs.keys()], index: indexMode === true });
       }
       const now = Date.now();
@@ -773,18 +837,19 @@ function workerMain() {
     for (const s of run.scalars.values()) truncScalar(s, 0);
     for (const s of run.hists.values()) truncList(s, 0);
     for (const s of run.texts.values()) truncList(s, 0);
-    for (const f of run.files.values()) { f.fetched = 0; f.pending = null; f.pendingLen = 0; f.corrupt = false; }
+    for (const f of run.files.values()) { f.fetched = 0; f.pending = null; f.pendingLen = 0; f.corrupt = false; f.lastWall = 0; f.grew = 0; }
     run.warnings.length = 0; run.ignored = {}; run.bytes = 0;
     post({ type: 'reset', run: run.name });
   }
   self.onmessage = (e) => {
     const m = e.data;
-    if (m.type === 'start') { root = m.root; intervalMs = m.intervalMs; purge = m.purge; cycle(true); }
+    if (m.type === 'start') { root = m.root; intervalMs = m.intervalMs; purge = m.purge; restoreAll().then(() => cycle(true)); }
     else if (m.type === 'refresh') cycle(!!m.force);
     else if (m.type === 'visible') { hidden = !m.visible; if (hidden) clearTimeout(timer); else if (!busy) cycle(false); }
     else if (m.type === 'selection') { const before = selected; selected = m.runs ? new Set(m.runs) : null; const newlyShown = m.runs ? m.runs.some(n => before && !before.has(n)) : !!before; if (newlyShown) cycle(false); }
     else if (m.type === 'interval') { intervalMs = m.intervalMs; if (!busy) schedule(); }
     else if (m.type === 'purge') { purge = m.purge; for (const run of runs.values()) { resetRun(run); flush(run); } cycle(true); }
+    else if (m.type === 'clearCache') { if (db) { try { db.transaction('runs', 'readwrite').objectStore('runs').clear(); } catch {} } }
   };
 }
 
@@ -914,7 +979,7 @@ const dirtyTags = new Set();
 worker.onmessage = (e) => {
   const m = e.data;
   switch (m.type) {
-    case 'runs': rootProblem = false; indexMode = !!m.index; assignColors(m.runs); for (const n of m.runs) getRun(n); queueSidebar(); queueLayout(); sendSelection(); break;
+    case 'runs': rootProblem = false; if (m.index != null && !m.restored) indexMode = !!m.index; if (m.restored) setFresh('busy', `restored ${m.restored} runs from cache, checking for changes`); assignColors(m.runs); for (const n of m.runs) getRun(n); queueSidebar(); queueLayout(); sendSelection(); break;
     case 'scalar': {
       const run = getRun(m.run);
       let s = run.scalars.get(m.tag);
@@ -935,6 +1000,7 @@ worker.onmessage = (e) => {
       break;
     }
     case 'reset': { const run = getRun(m.run); run.scalars.clear(); run.hists.clear(); run.texts.clear(); run.lastStep = -Infinity; run.version++; queueLayout(); break; }
+    case 'removeRun': runs.delete(m.run); queueSidebar(); queueLayout(); break;
     case 'runstat': { const run = getRun(m.run); run.warnings = m.warnings; run.ignored = m.ignored; run.bytes = m.bytes; queueSidebar(); break; }
     case 'progress': onProgress(m); break;
     case 'rootError': showRootError(m); break;
@@ -1072,7 +1138,7 @@ function tickFresh() {
   $('#dot').title = $('#freshText').title = `${fmtBytes(total)} of event data in ${runs.size} runs` + (progress.files ? (indexMode ? `\nserver index in use: one request per refresh lists all ${progress.files} files` : `\nlast refresh checked ${progress.polled} of ${progress.files} files; finished runs are checked less often`) : '');
 }
 setInterval(tickFresh, 1000);
-$('#refreshBtn').addEventListener('click', () => worker.postMessage({ type: 'refresh', force: true }));
+$('#refreshBtn').addEventListener('click', e => { if (e.shiftKey) { worker.postMessage({ type: 'clearCache' }); setTimeout(() => location.reload(), 300); } else worker.postMessage({ type: 'refresh', force: true }); });
 $('#refreshSel').addEventListener('change', e => { state.r = +e.target.value; worker.postMessage({ type: 'interval', intervalMs: state.r * 1000 }); saveState(); });
 $('#themeBtn').addEventListener('click', () => { state.theme = state.theme === 'dark' ? 'light' : 'dark'; applyTheme(); saveState(); });
 function applyTheme() {
