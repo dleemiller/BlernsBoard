@@ -641,12 +641,15 @@ function workerMain() {
   // How often a file is worth a HEAD: the newest file of a run is polled every cycle while
   // its data is fresh, then less and less often; older files (a run's earlier restarts)
   // never grow and are checked every 30 minutes only to catch the odd concurrent writer.
-  function pollDue(file, newest, now, force) {
+  // Runs not currently shown are checked every 10 minutes at most; selecting one triggers a catch-up.
+  let selected = null; // null = all runs shown
+  function pollDue(file, newest, now, force, shown) {
     if (force || file.fetched === 0) return true;
     const since = now - (file.checked || 0);
     if (!newest) return since >= 30 * 60000;
     const age = now - Math.max((file.lastWall || 0) * 1000, file.grew || 0);
-    const every = age < 30 * 60000 ? 0 : age < 6 * 3600000 ? 2 * 60000 : age < 2 * 86400000 ? 10 * 60000 : 30 * 60000;
+    let every = age < 30 * 60000 ? 0 : age < 6 * 3600000 ? 2 * 60000 : age < 2 * 86400000 ? 10 * 60000 : 30 * 60000;
+    if (!shown) every = Math.max(every, 10 * 60000);
     return since >= every;
   }
   async function cycle(force) {
@@ -670,7 +673,8 @@ function workerMain() {
       const work = []; // [run, files(sorted), due(Set)]
       for (const run of runs.values()) {
         const files = [...run.files.values()].sort((a, b) => a.name < b.name ? -1 : 1);
-        const due = new Set(files.filter((f, i) => !f.corrupt && pollDue(f, i === files.length - 1, now, force)));
+        const shown = !selected || selected.has(run.name);
+        const due = new Set(files.filter((f, i) => !f.corrupt && pollDue(f, i === files.length - 1, now, force, shown)));
         if (due.size) work.push([run, files, due]);
       }
       let total = 0, done = 0, bytes = 0;
@@ -727,6 +731,7 @@ function workerMain() {
     const m = e.data;
     if (m.type === 'start') { root = m.root; intervalMs = m.intervalMs; purge = m.purge; cycle(true); }
     else if (m.type === 'refresh') cycle(!!m.force);
+    else if (m.type === 'selection') { const before = selected; selected = m.runs ? new Set(m.runs) : null; const newlyShown = m.runs ? m.runs.some(n => before && !before.has(n)) : !!before; if (newlyShown) cycle(false); }
     else if (m.type === 'interval') { intervalMs = m.intervalMs; if (!busy) schedule(); }
     else if (m.type === 'purge') { purge = m.purge; for (const run of runs.values()) { resetRun(run); flush(run); } cycle(true); }
   };
@@ -852,7 +857,7 @@ const dirtyTags = new Set();
 worker.onmessage = (e) => {
   const m = e.data;
   switch (m.type) {
-    case 'runs': rootProblem = false; assignColors(m.runs); for (const n of m.runs) getRun(n); queueSidebar(); queueLayout(); break;
+    case 'runs': rootProblem = false; assignColors(m.runs); for (const n of m.runs) getRun(n); queueSidebar(); queueLayout(); sendSelection(); break;
     case 'scalar': {
       const run = getRun(m.run);
       let s = run.scalars.get(m.tag);
@@ -1075,7 +1080,9 @@ function toggleRun(name, solo) {
   }
   onRunsChanged();
 }
-function onRunsChanged() { saveState(); renderSidebar(); queueLayout(true); }
+function onRunsChanged() { saveState(); renderSidebar(); queueLayout(true); sendSelection(); }
+let selTimer = null;
+function sendSelection() { clearTimeout(selTimer); selTimer = setTimeout(() => worker.postMessage({ type: 'selection', runs: (state.runs || runRegex) ? selectedRuns().map(r => r.name) : null }), 300); }
 $('.runtools').addEventListener('click', e => {
   const act = e.target.dataset.act; if (!act) return;
   const all = [...runs.keys()], shown = all.filter(n => matches(runRegex, n));
@@ -1096,7 +1103,7 @@ $('#master').addEventListener('keydown', e => { if (e.key === ' ' || e.key === '
 $('#runFilter').addEventListener('input', e => {
   const v = e.target.value;
   try { runRegex = v ? new RegExp(v, 'i') : null; e.target.classList.remove('bad'); } catch { e.target.classList.add('bad'); return; }
-  renderSidebar(); queueLayout(true);
+  renderSidebar(); queueLayout(true); sendSelection();
 });
 function setHoverRun(name) {
   if (hoverRun === name) return; hoverRun = name;
