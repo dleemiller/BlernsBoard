@@ -121,6 +121,8 @@ aside h2 .count { color: var(--ink-3); font-weight: 400; }
 #runs .name .b { flex: 0 1 auto; min-width: 45%; overflow: hidden; text-overflow: ellipsis; }
 #runs li.off .name .a { color: var(--ink-3); }
 #runs .meta { color: var(--ink-3); font-size: 11px; white-space: nowrap; }
+#runs .meta .age { color: var(--ink-3); }
+#runs .meta .age.live { color: var(--ink); }
 #runs .warn { color: var(--warn); font-size: 12px; }
 .ctl { display: flex; flex-direction: column; gap: 9px; padding: 2px 4px; }
 .ctl label, .ctl .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--ink-2); }
@@ -1096,6 +1098,17 @@ function fmtClock(sec, span) {
   return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 function fmtDate(sec) { const d = new Date(sec * 1000); return `${MONTHS[d.getMonth()]} ${d.getDate()} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`; }
+// age of the newest event: single unit, coarse, for the run list
+function fmtAge(sec) {
+  if (!Number.isFinite(sec)) return '';
+  if (sec < 90) return 'now';
+  if (sec < 3600) return Math.round(sec / 60) + 'm';
+  if (sec < 86400) return Math.round(sec / 3600) + 'h';
+  if (sec < 30 * 86400) return Math.round(sec / 86400) + 'd';
+  if (sec < 365 * 86400) return Math.round(sec / (30 * 86400)) + 'mo';
+  return (sec / (365 * 86400)).toFixed(1).replace(/\.0$/, '') + 'y';
+}
+const LIVE_SEC = 5 * 60;
 function fmtBytes(b) { return b >= 1e9 ? (b / 1e9).toFixed(2) + ' GB' : b >= 1e6 ? (b / 1e6).toFixed(1) + ' MB' : b >= 1e3 ? (b / 1e3).toFixed(0) + ' kB' : b + ' B'; }
 
 // ---- ticks ---------------------------------------------------------------------------
@@ -1182,10 +1195,13 @@ function renderSidebar() {
     li.classList.toggle('off', !on); li.setAttribute('aria-checked', String(on)); li.hidden = !shown; if (shown) visible++;
     li.style.setProperty('--c', runColor(r));
     const meta = li.querySelector('.meta');
-    meta.textContent = Number.isFinite(r.lastStep) ? fmtSI(r.lastStep, r.lastStep >= 1e4 ? 1 : 0) : '';
+    meta.textContent = '';
+    if (Number.isFinite(r.lastStep)) meta.appendChild(document.createTextNode(fmtSI(r.lastStep, r.lastStep >= 1e4 ? 1 : 0)));
+    if (r.lastWall) { const age = document.createElement('span'); age.className = 'age'; meta.appendChild(document.createTextNode(' · ')); meta.appendChild(age); }
+    updateAge(li, r);
     const ign = Object.entries(r.ignored).map(([k, v]) => `${v} ${k} summaries not shown`).join('\n');
     const kinds = [[r.scalars.size, 'scalar'], [r.hists.size, 'histogram'], [r.texts.size, 'text']].filter(k => k[0]).map(k => `${k[0]} ${k[1]}`).join(', ') || 'no';
-    li.title = `${name}\n${kinds} tags · ${fmtBytes(r.bytes)}${Number.isFinite(r.lastStep) ? '\nlast step ' + fmtStep(r.lastStep) : ''}${r.lastWall ? '\nlast write ' + fmtDate(r.lastWall) : ''}${ign ? '\n' + ign : ''}${r.warnings.length ? '\n\n' + r.warnings.join('\n') : ''}\n\nclick: toggle · alt-click: only this run · double-click swatch: change colour`;
+    li.title = `${name}\n${kinds} tags · ${fmtBytes(r.bytes)}${Number.isFinite(r.lastStep) ? '\nlast step ' + fmtStep(r.lastStep) : ''}${r.lastWall ? '\nlast write ' + fmtDate(r.lastWall) + ', ' + fmtAge(Date.now() / 1000 - r.lastWall) + ' ago' : ''}${ign ? '\n' + ign : ''}${r.warnings.length ? '\n\n' + r.warnings.join('\n') : ''}\n\nclick: toggle · alt-click: only this run · double-click swatch: change colour`;
     const w = li.querySelector('.warn'); w.hidden = !r.warnings.length;
     ul.appendChild(li);
   }
@@ -1196,6 +1212,13 @@ function renderSidebar() {
   const master = $('#master'); master.setAttribute('aria-checked', on === 0 ? 'false' : on === shown.length ? 'true' : 'mixed');
   master.querySelector('.mlabel').textContent = runRegex ? `all ${shown.length} matching runs` : 'all runs';
 }
+function updateAge(li, r) {
+  const age = li.querySelector('.age'); if (!age || !r.lastWall) return;
+  const sec = Date.now() / 1000 - r.lastWall;
+  age.textContent = fmtAge(sec); age.classList.toggle('live', sec < LIVE_SEC);
+  age.title = sec < LIVE_SEC ? 'still writing' : `last event ${fmtAge(sec)} ago`;
+}
+setInterval(() => { for (const li of $('#runs').children) { const r = runs.get(li.dataset.run); if (r) updateAge(li, r); } }, 30000);
 function toggleRun(name, solo) {
   const all = [...runs.keys()];
   if (solo) state.runs = [name];
