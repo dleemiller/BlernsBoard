@@ -239,6 +239,7 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
     <div class="row"><span>y axis</span><span class="seg" id="ymode" role="group" aria-label="Y axis"><button data-v="lin">linear</button><button data-v="log">log</button></span></div>
     <div class="row"><span>columns</span><span class="seg" id="cols" role="group" aria-label="Columns"><button data-v="0">auto</button><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="4">4</button></span></div>
     <label><span>ignore outliers when fitting y</span><input type="checkbox" id="outliers"></label>
+    <label title="Linear charts only; log charts have no zero"><span>y axis includes 0</span><input type="checkbox" id="zero"></label>
     <label><span>sync zoom across charts</span><input type="checkbox" id="sync"></label>
     <label title="After a restart, TensorBoard-style logs contain steps twice. Off drops the older copy; on keeps every point in the order it was written."><span>keep overwritten points</span><input type="checkbox" id="keep"></label>
   </div>
@@ -637,7 +638,8 @@ function workerMain() {
   // ---- cycle ----------------------------------------------------------------------
   let root = '', busy = false, timer = null, intervalMs = 15000, lastList = 0, first = true, backoff = 1, pendingForce = false;
   const RELIST_MS = 5 * 60000;
-  function schedule() { clearTimeout(timer); if (intervalMs > 0) timer = setTimeout(() => cycle(false), intervalMs * backoff); }
+  let hidden = false;
+  function schedule() { clearTimeout(timer); if (intervalMs > 0 && !hidden) timer = setTimeout(() => cycle(false), intervalMs * backoff); }
   // How often a file is worth a HEAD: the newest file of a run is polled every cycle while
   // its data is fresh, then less and less often; older files (a run's earlier restarts)
   // never grow and are checked every 30 minutes only to catch the odd concurrent writer.
@@ -731,6 +733,7 @@ function workerMain() {
     const m = e.data;
     if (m.type === 'start') { root = m.root; intervalMs = m.intervalMs; purge = m.purge; cycle(true); }
     else if (m.type === 'refresh') cycle(!!m.force);
+    else if (m.type === 'visible') { hidden = !m.visible; if (hidden) clearTimeout(timer); else if (!busy) cycle(false); }
     else if (m.type === 'selection') { const before = selected; selected = m.runs ? new Set(m.runs) : null; const newlyShown = m.runs ? m.runs.some(n => before && !before.has(n)) : !!before; if (newlyShown) cycle(false); }
     else if (m.type === 'interval') { intervalMs = m.intervalMs; if (!busy) schedule(); }
     else if (m.type === 'purge') { purge = m.purge; for (const run of runs.values()) { resetRun(run); flush(run); } cycle(true); }
@@ -773,7 +776,7 @@ for (const lvl of ['error', 'warn']) { const orig = console[lvl].bind(console); 
 const params = new URLSearchParams(location.search);
 const rootUrl = (() => { let u = new URL(params.get('logdir') || '.', location.href); u.search = ''; u.hash = ''; if (!u.pathname.endsWith('/')) u.pathname += '/'; return u.href; })();
 const storeKey = 'blernsboard:' + rootUrl;
-const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, closed: [], allClosed: false, side: 264 };
+const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, closed: [], allClosed: false, side: 264, z: false };
 const state = { ...DEF };
 function loadState() {
   let saved = {}; try { saved = JSON.parse(localStorage.getItem(storeKey) || '{}'); } catch {}
@@ -786,6 +789,7 @@ function loadState() {
     if (h.has('x')) state.x = h.get('x');
     if (h.has('y')) state.y = h.get('y');
     if (h.has('o')) state.o = h.get('o') === '1';
+    if (h.has('z')) state.z = h.get('z') === '1';
     if (h.has('pin')) state.pin = h.get('pin') ? h.get('pin').split(',').map(decodeURIComponent) : [];
     if (h.has('cols')) state.cols = +h.get('cols') || 0;
     if (h.has('r')) state.r = +h.get('r');
@@ -807,6 +811,7 @@ function saveState() {
     if (state.x !== 'step') h.set('x', state.x);
     if (state.y !== 'lin') h.set('y', state.y);
     if (!state.o) h.set('o', '0');
+    if (state.z) h.set('z', '1');
     if (state.pin.length) h.set('pin', state.pin.map(encodeURIComponent).join(','));
     if (state.cols) h.set('cols', String(state.cols));
     if (state.r !== 15) h.set('r', String(state.r));
@@ -1125,6 +1130,7 @@ const syncY = segInit('#ymode', 'y', v => v, () => { for (const c of cards.value
 const syncCols = segInit('#cols', 'cols', v => +v, () => { $('#main').dataset.cols = state.cols || ''; });
 $('#smooth').addEventListener('input', e => { state.s = +e.target.value; $('#smoothVal').textContent = state.s.toFixed(2); saveState(); allDirty(); });
 $('#outliers').addEventListener('change', e => { state.o = e.target.checked; saveState(); allDirty(); });
+$('#zero').addEventListener('change', e => { state.z = e.target.checked; saveState(); allDirty(); });
 $('#sync').addEventListener('change', e => { state.sync = e.target.checked; saveState(); if (!state.sync) { globalZoom = null; } allDirty(); });
 $('#keep').addEventListener('change', e => { state.keep = e.target.checked; saveState(); worker.postMessage({ type: 'purge', purge: !state.keep }); });
 $('#collapseAll').addEventListener('click', () => { state.closed = [...$('#content').querySelectorAll('section.group')].map(sec => sec.dataset.group); state.allClosed = true; for (const sec of $('#content').querySelectorAll('section.group')) sec.classList.add('closed'); saveState(); });
@@ -1338,8 +1344,8 @@ function drawScalar(card) {
   if (!(x1 > x0)) { x0 -= 0.5; x1 += 0.5; }
   // downsample (against a provisional width; the left margin only depends on the y labels) and collect y values
   const pwGuess = w - 40 - M.r;
-  const allSm = [], allRaw = [];
-  let skipped = 0;
+  let skipped = 0, anyPositive = false;
+  let y0 = Infinity, y1 = -Infinity;
   for (const S of series) {
     const { s, xs } = S;
     let i0 = 0, i1 = s.n;
@@ -1348,18 +1354,22 @@ function drawScalar(card) {
     S.sm = sm;
     S.idx = downsample(xs, sm, i0, i1, x0, x1, pwGuess);
     S.idxRaw = sw > 0 ? downsample(xs, s.values, i0, i1, x0, x1, pwGuess) : S.idx;
-    for (const i of S.idx) { const v = sm[i]; if (Number.isFinite(v) && (!log || v > 0)) allSm.push(v); else if (log && Number.isFinite(v)) skipped++; }
-    for (const i of S.idxRaw) { const v = s.values[i]; if (Number.isFinite(v) && (!log || v > 0)) allRaw.push(v); }
+    // each series gets its own robust range, then the ranges are unioned, so a sparse run can
+    // never be pushed off-screen by a dense one
+    const raw = [];
+    for (const i of S.idxRaw) { const v = s.values[i]; if (Number.isFinite(v) && (!log || v > 0)) raw.push(v); }
+    if (raw.length) {
+      anyPositive = true; raw.sort((a, b) => a - b);
+      const lo = state.o ? percentile(raw, 0.01) : raw[0], hi = state.o ? percentile(raw, 0.99) : raw[raw.length - 1];
+      if (lo < y0) y0 = lo; if (hi > y1) y1 = hi;
+    }
+    for (const i of S.idx) { const v = sm[i]; if (Number.isFinite(v) && (!log || v > 0)) { if (sw > 0) { if (v < y0) y0 = v; if (v > y1) y1 = v; } } else if (log && Number.isFinite(v)) skipped++; }
   }
   let useLog = log;
-  if (log && !allRaw.length) { useLog = false; card.note.textContent = 'log axis unavailable: no positive values'; }
+  if (log && !anyPositive) { useLog = false; card.note.textContent = 'log axis unavailable: no positive values'; }
   else if (log && skipped) card.note.textContent = `log axis: ${skipped} non-positive point${skipped > 1 ? 's' : ''} hidden`;
-  // y domain
-  allRaw.sort((a, b) => a - b);
-  let y0, y1;
-  if (state.o) { y0 = percentile(allRaw, 0.01); y1 = percentile(allRaw, 0.99); } else { y0 = allRaw[0]; y1 = allRaw[allRaw.length - 1]; }
-  if (sw > 0 && allSm.length) { let a = Infinity, b = -Infinity; for (const v of allSm) { if (v < a) a = v; if (v > b) b = v; } y0 = Math.min(y0, a); y1 = Math.max(y1, b); }
   if (!Number.isFinite(y0) || !Number.isFinite(y1)) { y0 = 0; y1 = 1; }
+  if (state.z && !useLog) { if (y0 > 0) y0 = 0; if (y1 < 0) y1 = 0; }
   if (useLog) { y0 = Math.log10(y0); y1 = Math.log10(y1); }
   if (y1 - y0 < 1e-12 * Math.max(1, Math.abs(y0))) { const pad = useLog ? 0.5 : (Math.abs(y0) > 0 ? Math.abs(y0) * 0.1 : 1); y0 -= pad; y1 += pad; }
   else { const pad = (y1 - y0) * 0.06; y0 -= pad; y1 += pad; }
@@ -1727,14 +1737,14 @@ $('#themeBtn').textContent = state.theme === 'dark' ? 'light' : 'dark';
 $('#rootLabel').textContent = rootLabel(); $('#rootLabel').title = rootUrl;
 document.title = 'BlernsBoard · ' + rootLabel().split('/').filter(Boolean).pop();
 $('#smooth').value = state.s; $('#smoothVal').textContent = state.s.toFixed(2);
-$('#outliers').checked = state.o; $('#sync').checked = state.sync; $('#keep').checked = state.keep;
+$('#outliers').checked = state.o; $('#zero').checked = !!state.z; $('#sync').checked = state.sync; $('#keep').checked = state.keep;
 $('#refreshSel').value = String([5, 15, 30, 60, 0].includes(state.r) ? state.r : 15);
 $('#tagFilter').value = state.tags; try { tagRegex = state.tags ? new RegExp(state.tags, 'i') : null; } catch { tagRegex = null; }
 $('#main').dataset.cols = state.cols || '';
 syncX(); syncY(); syncCols();
 $('#content').innerHTML = '<div class="state"><h2>Reading logs</h2><p>Listing <code></code></p></div>'; $('#content code').textContent = rootLabel();
 worker.postMessage({ type: 'start', root: rootUrl, intervalMs: state.r * 1000, purge: !state.keep });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) worker.postMessage({ type: 'refresh' }); });
+document.addEventListener('visibilitychange', () => worker.postMessage({ type: 'visible', visible: !document.hidden }));
 // sidebar resize
 document.body.style.setProperty('--side', Math.min(600, Math.max(180, state.side || 264)) + 'px');
 {
