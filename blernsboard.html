@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BlernsBoard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%23f08a24' stroke='%23b9561a' stroke-width='1.2'/%3E%3Cpath d='M9 2.5Q3 16 9 29.5M23 2.5Q29 16 23 29.5' fill='none' stroke='%23d1262b' stroke-width='2.2'/%3E%3Cg stroke='%23d1262b' stroke-width='1.3' stroke-linecap='round'%3E%3Cpath d='M5.1 7.1l4 1.6M4.3 11.2l4 1.5M4 15.3l4 1.4M4.3 19.4l4 1.3M5.1 23.4l4 1.3'/%3E%3Cpath d='M26.9 7.1l-4 1.6M27.7 11.2l-4 1.5M28 15.3l-4 1.4M27.7 19.4l-4 1.3M26.9 23.4l-4 1.3'/%3E%3C/g%3E%3C/svg%3E">
 <style>
 :root {
   color-scheme: dark;
@@ -68,7 +69,8 @@ header {
   border-bottom: 1px solid var(--border);
   background: var(--card);
 }
-header .brand { font-weight: 600; letter-spacing: .01em; }
+header .brand { font-weight: 600; letter-spacing: .01em; display: inline-flex; align-items: center; gap: 7px; }
+header .mark { width: 18px; height: 18px; }
 header .root { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
 header .fresh { display: flex; align-items: center; gap: 7px; color: var(--ink-2); white-space: nowrap; }
 header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink); transition: background .2s; }
@@ -211,7 +213,7 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
 </head>
 <body>
 <header>
-  <span class="brand">BlernsBoard</span>
+  <span class="brand"><svg class="mark" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#f08a24" stroke="#b9561a" stroke-width="1.2"/><path d="M9 2.5Q3 16 9 29.5M23 2.5Q29 16 23 29.5" fill="none" stroke="#d1262b" stroke-width="2.2"/><g stroke="#d1262b" stroke-width="1.3" stroke-linecap="round"><path d="M5.1 7.1l4 1.6M4.3 11.2l4 1.5M4 15.3l4 1.4M4.3 19.4l4 1.3M5.1 23.4l4 1.3"/><path d="M26.9 7.1l-4 1.6M27.7 11.2l-4 1.5M28 15.3l-4 1.4M27.7 19.4l-4 1.3M26.9 23.4l-4 1.3"/></g></svg>BlernsBoard</span>
   <span class="root" id="rootLabel" title=""></span>
   <span class="errs" id="errs" title=""></span>
   <span class="fresh"><span class="dot busy" id="dot"></span><span id="freshText">starting</span></span>
