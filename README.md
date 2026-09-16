@@ -2,6 +2,8 @@
 
 A single HTML file that reads TensorBoard event logs
 
+![BlernsBoard in dark mode: validation metrics for four runs, zoomed and synced, with the readout beside a chart](docs/screenshot.png)
+
 ## Install
 
 Any of these gives you a `blernsboard` command. Python is the only requirement
