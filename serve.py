@@ -15,7 +15,7 @@ page refreshes with a single request instead of one per directory and file.
 import argparse, gzip, json, os, sys, functools, time, threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 HERE = os.path.dirname(os.path.abspath(__file__))
 PAGE = os.path.join(HERE, "blernsboard.html")
 
