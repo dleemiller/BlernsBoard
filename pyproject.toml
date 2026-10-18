@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "blernsboard"
-version = "0.3.0"
+version = "0.3.1"
 description = "A single-file TensorBoard log viewer: dark mode, better plotting, no backend."
 readme = "README.md"
 license = { file = "LICENSE" }
