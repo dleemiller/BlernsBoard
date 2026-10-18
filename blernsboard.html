@@ -95,7 +95,8 @@ aside h2 { font-size: 13px; font-weight: 600; margin: 8px 4px 6px; display: flex
 aside h2 .count { color: var(--ink-3); font-weight: 400; }
 .runtools { display: flex; align-items: center; gap: 2px; margin: 6px 0 2px; color: var(--ink-2); }
 .runtools button { padding: 1px 6px; }
-.runtools .shuffle { font-size: 14px; line-height: 1; padding: 2px 6px; }
+.runtools .icon { font-size: 14px; line-height: 1; padding: 2px 6px; }
+.runtools .icon[aria-pressed="true"] { background: var(--sel-2); color: var(--ink); }
 .master { flex: 1; display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 3px; cursor: pointer; user-select: none; color: var(--ink); }
 .master:hover { background: var(--sel); }
 .master .sw { width: 12px; height: 12px; border-radius: 3px; flex: none; border: 2px solid var(--ink-2); background: var(--ink-2); }
@@ -235,8 +236,9 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
   <input type="text" id="runFilter" placeholder="filter runs (regex)" aria-label="Filter runs" spellcheck="false">
   <div class="runtools">
     <span class="master" id="master" role="checkbox" tabindex="0" aria-checked="false" title="Toggle every listed run"><span class="sw"></span><span class="mlabel">all runs</span></span>
-    <button data-act="invert" title="Invert the selection of the listed runs">invert</button>
-    <button data-act="shuffle" class="shuffle" title="Shuffle the colours of the selected runs" aria-label="Shuffle colours">↻</button>
+    <button data-act="invert" class="icon" title="Invert the selection of the listed runs" aria-label="Invert selection">⇄</button>
+    <button data-act="reverse" class="icon" title="Reverse the list order: oldest activity first" aria-label="Reverse list order" aria-pressed="false">⇅</button>
+    <button data-act="shuffle" class="icon" title="Shuffle the colours of the selected runs" aria-label="Shuffle colours">↻</button>
   </div>
   <ul id="runs"></ul>
   <div class="disp">
@@ -894,7 +896,7 @@ for (const lvl of ['error', 'warn']) { const orig = console[lvl].bind(console); 
 const params = new URLSearchParams(location.search);
 const rootUrl = (() => { let u = new URL(params.get('logdir') || '.', location.href); u.search = ''; u.hash = ''; if (!u.pathname.endsWith('/')) u.pathname += '/'; return u.href; })();
 const storeKey = 'blernsboard:' + rootUrl;
-const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, closed: [], allClosed: false, side: 264, z: false, split: false, tags2: '', d: 2000 };
+const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, closed: [], allClosed: false, rev: false, side: 264, z: false, split: false, tags2: '', d: 2000 };
 const state = { ...DEF };
 function loadState() {
   let saved = {}; try { saved = JSON.parse(localStorage.getItem(storeKey) || '{}'); } catch {}
@@ -1175,8 +1177,10 @@ function matches(re, s) { return !re || re.test(s); }
 function queueSidebar() { if (!sidebarTimer) sidebarTimer = setTimeout(() => { sidebarTimer = null; renderSidebar(); }, 150); }
 function renderSidebar() {
   const ul = $('#runs');
-  // newest activity first, so the live runs sit at the top and the list scrolls into the past
+  // newest activity first, so the live runs sit at the top and the list scrolls into the past (or the other way round)
   const names = [...runs.values()].sort((a, b) => ((b.lastWall || 0) - (a.lastWall || 0)) || natCmp(a.name, b.name)).map(r => r.name);
+  if (state.rev) names.reverse();
+  const rev = $('[data-act=reverse]'); rev.setAttribute('aria-pressed', String(!!state.rev)); rev.title = `Reverse the list order: ${state.rev ? 'newest' : 'oldest'} activity first`;
   const existing = new Map([...ul.children].map(li => [li.dataset.run, li]));
   let visible = 0;
   for (const name of names) {
@@ -1238,6 +1242,7 @@ function sendSelection() { clearTimeout(selTimer); selTimer = setTimeout(() => w
 $('.runtools').addEventListener('click', e => {
   const act = e.target.dataset.act; if (!act) return;
   if (act === 'shuffle') return shuffleColors();
+  if (act === 'reverse') { state.rev = !state.rev; saveState(); return renderSidebar(); }
   const all = [...runs.keys()], shown = all.filter(n => matches(runRegex, n));
   const cur = new Set(state.runs || all); for (const n of shown) { if (cur.has(n)) cur.delete(n); else cur.add(n); } state.runs = [...cur];
   if (state.runs.length === all.length) state.runs = null;
