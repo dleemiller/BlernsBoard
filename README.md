@@ -2,7 +2,7 @@
 
 A single HTML file that reads TensorBoard event logs
 
-![BlernsBoard in dark mode: the eval group open for seven NLI training runs coloured along the viridis ramp, other groups collapsed, with the readout beside a chart](docs/screenshot.png)
+![BlernsBoard in dark mode: the eval group open for seven NLI training runs and their cooldowns, coloured along the viridis ramp, other groups collapsed, with the readout beside a chart](docs/screenshot.png)
 
 ## Install
 
