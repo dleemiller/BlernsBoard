@@ -77,6 +77,8 @@ header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink
 header .dot.busy { background: var(--ink-3); }
 header .dot.bad { background: var(--warn); }
 header select { width: auto; padding: 2px 4px; }
+header #palBtn { min-width: 4.6em; text-align: left; white-space: nowrap; }
+header #cbBtn[aria-pressed="true"] { background: var(--sel-2); color: var(--ink); }
 header .errs { color: var(--warn); display: none; }
 header .errs.on { display: inline; }
 
@@ -96,6 +98,7 @@ aside h2 .count { color: var(--ink-3); font-weight: 400; }
 .runtools { display: flex; align-items: center; gap: 2px; margin: 6px 0 2px; color: var(--ink-2); }
 .runtools button { padding: 1px 6px; }
 .runtools .icon { font-size: 14px; line-height: 1; padding: 2px 6px; }
+.runtools button:disabled { opacity: .35; cursor: default; background: none; }
 .runtools .icon[aria-pressed="true"] { background: var(--sel-2); color: var(--ink); }
 .master { flex: 1; display: flex; align-items: center; gap: 8px; padding: 3px 4px; border-radius: 3px; cursor: pointer; user-select: none; color: var(--ink); }
 .master:hover { background: var(--sel); }
@@ -229,6 +232,8 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
     <option value="5">5s</option><option value="15">15s</option><option value="30">30s</option><option value="60">60s</option><option value="0">off</option>
   </select>
   <button id="refreshBtn" title="Refresh now. Shift-click: forget the cached data and re-read every file." aria-label="Refresh now">refresh</button>
+  <button id="cbBtn" aria-label="Colour-blind mode" aria-pressed="false">👁︎</button>
+  <button id="palBtn" aria-label="Switch colour palette"></button>
   <button id="themeBtn" title="Switch theme" aria-label="Switch theme">light</button>
 </header>
 <aside>
@@ -865,9 +870,32 @@ function workerMain() {
    ===================================================================== */
 (() => {
 const $ = (s, el = document) => el.querySelector(s);
-const PALETTE = {
-  dark: ['#2a97f7', '#e86545', '#15a8ae', '#d77804', '#947df3', '#70a71b', '#d962ab', '#b98c06', '#c06cd3', '#03af73'],
-  light: ['#2a78d6', '#e35a2a', '#0e9a9f', '#c26d00', '#7a63e6', '#5b8f0f', '#c94d97', '#9d7a00', '#a94fbd', '#0a9a62'],
+// every colour keeps at least 3:1 contrast against its theme's card; light variants of the published palettes are darkened where needed
+const PALETTES = {
+  default: { name: 'BlernsBoard', short: 'bb',
+    dark: ['#2a97f7', '#e86545', '#15a8ae', '#d77804', '#947df3', '#70a71b', '#d962ab', '#b98c06', '#c06cd3', '#03af73'],
+    light: ['#2a78d6', '#e35a2a', '#0e9a9f', '#c26d00', '#7a63e6', '#5b8f0f', '#c94d97', '#9d7a00', '#a94fbd', '#0a9a62'] },
+  tableau: { name: 'Tableau 10', short: 'tab',
+    dark: ['#5b8fc9', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac'],
+    light: ['#4e79a7', '#d97a1a', '#e15759', '#4f9690', '#59a14f', '#a8861a', '#b07aa1', '#d9667a', '#9c755f', '#8f8681'] },
+  neon: { name: 'Neon', short: 'neon', glow: true,
+    dark: ['#ff2a6d', '#08f7fe', '#b967ff', '#f5d300', '#39ff14', '#ff6c11', '#ff71ce', '#4d8bff'],
+    light: ['#e0005a', '#009fae', '#9a3df0', '#a88f00', '#1f9e00', '#e05500', '#d6339f', '#1f5fe0'] },
+  obs: { name: 'Observable 10', short: 'obs',
+    dark: ['#5a80e0', '#efb118', '#ff725c', '#6cc5b0', '#3ca951', '#ff8ab7', '#a463f2', '#97bbf5', '#9c6b4e', '#9498a0'],
+    light: ['#4269d0', '#b8860f', '#e0503a', '#3f9a86', '#3ca951', '#d9578e', '#a463f2', '#2b94cc', '#9c6b4e', '#7a7f88'] },
+  // a ramp spreads the selected runs evenly along a gradient in name order, so a sweep reads as a trend; each theme drops the end that vanishes into its card
+  viridis: { name: 'Viridis', short: 'vir', cb: true, ramp: true,
+    stops: ['#440154', '#482878', '#3e4989', '#31688e', '#26828e', '#1f9e89', '#35b779', '#6ece58', '#fde725'], dark: [0.375, 1], light: [0, 0.625] },
+  okabe: { name: 'Okabe–Ito', short: 'oi', cb: true,
+    dark: ['#56b4e9', '#e69f00', '#009e73', '#f0e442', '#cc79a7', '#d55e00', '#3d8fd1', '#bbbbbb'],
+    light: ['#0072b2', '#d55e00', '#009e73', '#c08400', '#c06a9b', '#3a98cf', '#8f8300', '#000000'] },
+  tol: { name: 'Tol bright', short: 'tol', cb: true,
+    dark: ['#5a8fc8', '#ee6677', '#228833', '#ccbb44', '#66ccee', '#c24d8f', '#bbbbbb'],
+    light: ['#4477aa', '#e05566', '#228833', '#a39530', '#2e9fc7', '#aa3377', '#888888'] },
+  ibm: { name: 'IBM', short: 'ibm', cb: true,
+    dark: ['#648fff', '#785ef0', '#dc267f', '#fe6100', '#ffb000'],
+    light: ['#5580f0', '#785ef0', '#dc267f', '#e85800', '#c08400'] },
 };
 const SVG = {
   pin: '<svg viewBox="0 0 16 16"><path d="M9.5 1.5l5 5-2 .5-2.5 2.5.5 3.5-1.5 1.5-3-3L2.5 15 1 13.5l3.5-3.5-3-3L3 5.5l3.5.5L9 3.5z"/></svg>',
@@ -896,7 +924,7 @@ for (const lvl of ['error', 'warn']) { const orig = console[lvl].bind(console); 
 const params = new URLSearchParams(location.search);
 const rootUrl = (() => { let u = new URL(params.get('logdir') || '.', location.href); u.search = ''; u.hash = ''; if (!u.pathname.endsWith('/')) u.pathname += '/'; return u.href; })();
 const storeKey = 'blernsboard:' + rootUrl;
-const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, closed: [], allClosed: false, rev: false, side: 264, z: false, split: false, tags2: '', d: 2000 };
+const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, pal: 'default', cb: false, closed: [], allClosed: false, rev: false, side: 264, z: false, split: false, tags2: '', d: 2000 };
 const state = { ...DEF };
 function loadState() {
   let saved = {}; try { saved = JSON.parse(localStorage.getItem(storeKey) || '{}'); } catch {}
@@ -919,7 +947,10 @@ function loadState() {
     if (h.has('sync')) state.sync = h.get('sync') === '1';
     if (h.has('keep')) state.keep = h.get('keep') === '1';
     if (h.has('theme')) state.theme = h.get('theme');
+    if (h.has('pal')) state.pal = h.get('pal');
+    if (h.has('cb')) state.cb = h.get('cb') === '1';
   }
+  if (!PALETTES[state.pal]) state.pal = 'default';
   if (!['step', 'rel', 'wall'].includes(state.x)) state.x = 'step';
   if (!['lin', 'log'].includes(state.y)) state.y = 'lin';
 }
@@ -944,6 +975,8 @@ function saveState() {
     if (state.sync) h.set('sync', '1');
     if (state.keep) h.set('keep', '1');
     if (state.theme !== 'dark') h.set('theme', state.theme);
+    if (state.pal !== 'default') h.set('pal', state.pal);
+    if (state.cb) h.set('cb', '1');
     const hs = h.toString();
     history.replaceState(null, '', location.pathname + location.search + (hs ? '#' + hs : ''));
     try { localStorage.setItem(storeKey, JSON.stringify(state)); } catch {}
@@ -965,12 +998,35 @@ function assignColors(names) {
   for (const n of fresh) { const r = getRun(n); r.idx = state.colors[n] != null ? state.colors[n] : colorNext++; state.colors[n] = r.idx; }
   if (fresh.length) saveState();
 }
+function palette() { const p = PALETTES[state.pal] || PALETTES.default; return state.cb && !p.cb ? PALETTES.okabe : p; }
+let rampRank = null, rampKey = [];
+function rampT(run) {
+  // position of the run among the selected runs in name order, 0..1; unselected runs place among all runs
+  const key = [state.runs, runRegex, runs.size];
+  if (!rampRank || key.some((k, i) => k !== rampKey[i])) {
+    rampKey = key; rampRank = new Map();
+    const sel = selectedRuns(), rest = [...runs.values()].filter(r => !sel.includes(r)).sort((a, b) => natCmp(a.name, b.name));
+    sel.forEach((r, i) => rampRank.set(r.name, sel.length > 1 ? i / (sel.length - 1) : 0.5));
+    rest.forEach((r, i) => { if (!rampRank.has(r.name)) rampRank.set(r.name, rest.length > 1 ? i / (rest.length - 1) : 0.5); });
+  }
+  return rampRank.get(run.name) ?? 0.5;
+}
+function rampColor(p, t) {
+  const [a, b] = p[state.theme === 'light' ? 'light' : 'dark'], u = (a + (b - a) * t) * (p.stops.length - 1), k = Math.min(Math.floor(u), p.stops.length - 2);
+  return mix(p.stops[k], p.stops[k + 1], u - k);
+}
 function runColor(run) {
-  const pal = PALETTE[state.theme === 'light' ? 'light' : 'dark'];
+  if (palette().ramp) return rampColor(palette(), rampT(run));
+  const pal = palette()[state.theme === 'light' ? 'light' : 'dark'];
   const i = run.idx < 0 ? 0 : run.idx;
   const base = pal[i % pal.length], round = Math.floor(i / pal.length) % 3;
   if (round === 0) return base;
   return mix(base, state.theme === 'light' ? '#000000' : '#ffffff', round === 1 ? 0.35 : 0.6);
+}
+function recolor() {
+  for (const li of $('#runs').children) { const r = runs.get(li.dataset.run); if (r) li.style.setProperty('--c', runColor(r)); }
+  for (const c of cards.values()) markDirty(c);
+  requestRender();
 }
 function mix(a, b, t) {
   const pa = hex(a), pb = hex(b);
@@ -1164,9 +1220,7 @@ $('#themeBtn').addEventListener('click', () => { state.theme = state.theme === '
 function applyTheme() {
   document.documentElement.dataset.theme = state.theme;
   $('#themeBtn').textContent = state.theme === 'dark' ? 'light' : 'dark';
-  for (const li of $('#runs').children) { const r = runs.get(li.dataset.run); if (r) li.style.setProperty('--c', runColor(r)); }
-  for (const c of cards.values()) markDirty(c);
-  requestRender();
+  recolor();
 }
 
 // ---- UI: sidebar ------------------------------------------------------------------
@@ -1236,7 +1290,7 @@ function toggleRun(name, solo) {
   }
   onRunsChanged();
 }
-function onRunsChanged() { saveState(); renderSidebar(); queueLayout(true); sendSelection(); }
+function onRunsChanged() { saveState(); renderSidebar(); queueLayout(true); sendSelection(); if (palette().ramp) recolor(); }
 let selTimer = null;
 function sendSelection() { clearTimeout(selTimer); selTimer = setTimeout(() => worker.postMessage({ type: 'selection', runs: (state.runs || runRegex) ? selectedRuns().map(r => r.name) : null }), 300); }
 $('.runtools').addEventListener('click', e => {
@@ -1251,15 +1305,13 @@ $('.runtools').addEventListener('click', e => {
 function shuffleColors() {
   // deal the selected runs a fresh random set of distinct palette slots, so they always end up told apart
   const sel = selectedRuns(); if (!sel.length) return;
-  const slots = [...Array(Math.max(sel.length, PALETTE.dark.length)).keys()];
+  const slots = [...Array(Math.max(sel.length, palette().dark.length)).keys()];
   const before = sel.map(r => r.idx).join();
   do {
     for (let i = slots.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [slots[i], slots[j]] = [slots[j], slots[i]]; }
-  } while (slots.slice(0, sel.length).join() === before); // at least 10 slots, so a different deal always exists
+  } while (slots.slice(0, sel.length).join() === before); // at least 5 slots, so a different deal always exists
   sel.forEach((r, i) => { r.idx = slots[i]; state.colors[r.name] = r.idx; });
-  for (const li of $('#runs').children) { const r = runs.get(li.dataset.run); if (r) li.style.setProperty('--c', runColor(r)); }
-  for (const c of cards.values()) markDirty(c);
-  requestRender(); saveState();
+  recolor(); saveState();
 }
 function toggleAll() {
   const all = [...runs.keys()], shown = all.filter(n => matches(runRegex, n));
@@ -1274,7 +1326,7 @@ $('#master').addEventListener('keydown', e => { if (e.key === ' ' || e.key === '
 $('#runFilter').addEventListener('input', e => {
   const v = e.target.value;
   try { runRegex = v ? new RegExp(v, 'i') : null; e.target.classList.remove('bad'); } catch { e.target.classList.add('bad'); return; }
-  renderSidebar(); queueLayout(true); sendSelection();
+  renderSidebar(); queueLayout(true); sendSelection(); if (palette().ramp) recolor();
 });
 function setHoverRun(name) {
   if (hoverRun === name) return; hoverRun = name;
@@ -1300,6 +1352,22 @@ $('#outliers').addEventListener('change', e => { state.o = e.target.checked; sav
 $('#zero').addEventListener('change', e => { state.z = e.target.checked; saveState(); allDirty(); });
 $('#sync').addEventListener('change', e => { state.sync = e.target.checked; saveState(); if (!state.sync) { globalZoom = null; } allDirty(); });
 $('#keep').addEventListener('change', e => { state.keep = e.target.checked; saveState(); worker.postMessage({ type: 'purge', purge: !state.keep }); });
+// the palettes the switch cycles through, and the active one's place among them
+function palKeys() { return Object.keys(PALETTES).filter(k => !state.cb || PALETTES[k].cb); }
+function palStep(d) { const keys = palKeys(), at = keys.findIndex(k => PALETTES[k] === palette()); return keys[(at + d + keys.length) % keys.length]; }
+function syncPalette() {
+  const p = palette(), b = $('#palBtn'), next = PALETTES[palStep(1)];
+  b.textContent = '◐ ' + p.short;
+  b.title = `Palette: ${p.name}, ${p.ramp ? 'a gradient across the selected runs in name order' : p.dark.length + ' colours'}${p.cb ? ', colour-blind safe' : ''}\nclick: ${next.name} · shift-click: previous`;
+  const sh = $('[data-act=shuffle]'); sh.disabled = !!p.ramp; sh.title = p.ramp ? 'The gradient follows run names, so there is nothing to shuffle' : 'Shuffle the colours of the selected runs';
+  const cb = $('#cbBtn'); cb.setAttribute('aria-pressed', String(state.cb));
+  cb.title = state.cb ? 'Colour-blind mode is on: the palette switch offers only colour-blind-safe palettes. Click to turn off.' : 'Colour-blind mode: switch only between colour-blind-safe palettes';
+}
+$('#palBtn').addEventListener('click', e => {
+  state.pal = palStep(e.shiftKey ? -1 : 1);
+  syncPalette(); saveState(); recolor();
+});
+$('#cbBtn').addEventListener('click', () => { state.cb = !state.cb; if (state.cb && !PALETTES[state.pal].cb) state.pal = 'okabe'; syncPalette(); saveState(); recolor(); });
 const panes = [...document.querySelectorAll('.pane')].map((el, id) => ({ id, el, content: el.querySelector('.content'), input: el.querySelector('.tagFilter'), hint: el.querySelector('.hint'), regex: null }));
 for (const pane of panes) {
   pane.el.querySelector('.collapseAll').addEventListener('click', () => { const secs = [...pane.content.querySelectorAll('section.group')]; state.closed = [...new Set([...state.closed, ...secs.map(sec => sec.dataset.group)])]; state.allClosed = true; for (const sec of secs) sec.classList.add('closed'); saveState(); });
@@ -1632,7 +1700,8 @@ function drawScalar(card) {
     if (pen) { ctx.closePath(); ctx.fill(); }
   }
   for (const S of series) { const dim = dimOthers && S.r.name !== hoverRun; if (sw > 0) drawLine(S, S.idxRaw, S.raw, dim ? 0.08 : 0.25, 1); }
-  for (const S of series) { const dim = dimOthers && S.r.name !== hoverRun; drawLine(S, S.idx, S.sm, dim ? 0.2 : 1, sw > 0 ? 1.8 : 1.5); }
+  const glow = palette().glow && state.theme === 'dark'; // neon tubes: a soft halo in each line's own colour
+  for (const S of series) { const dim = dimOthers && S.r.name !== hoverRun; if (glow && !dim) { ctx.shadowBlur = 6; ctx.shadowColor = runColor(S.r); } drawLine(S, S.idx, S.sm, dim ? 0.2 : 1, sw > 0 ? 1.8 : 1.5); ctx.shadowBlur = 0; }
   ctx.globalAlpha = 1; ctx.restore();
   // tick labels: y outside on the left, x below
   ctx.fillStyle = inkC; ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
@@ -1966,7 +2035,7 @@ panes[0].input.value = state.tags; panes[1].input.value = state.tags2;
 for (const pane of panes) { const v = pane.id === 0 ? state.tags : state.tags2; try { pane.regex = v ? new RegExp(v, 'i') : null; } catch { pane.regex = null; pane.input.classList.add('bad'); } }
 $('#split').checked = !!state.split; panes[1].el.hidden = !state.split;
 $('#main').dataset.cols = state.cols || '';
-syncX(); syncY(); syncCols(); syncDens();
+syncX(); syncY(); syncCols(); syncDens(); syncPalette();
 panes[0].content.innerHTML = '<div class="state"><h2>Reading logs</h2><p>Listing <code></code></p></div>'; panes[0].content.querySelector('code').textContent = rootLabel();
 worker.postMessage({ type: 'start', root: rootUrl, intervalMs: state.r * 1000, purge: !state.keep });
 document.addEventListener('visibilitychange', () => worker.postMessage({ type: 'visible', visible: !document.hidden }));
