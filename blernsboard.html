@@ -122,8 +122,8 @@ aside h2 .count { color: var(--ink-3); font-weight: 400; }
 #runs li.off .sw { background: transparent; }
 #runs li.off .name { color: var(--ink-3); }
 #runs .name { flex: 1; min-width: 0; display: flex; white-space: nowrap; }
-#runs .name .a { flex: 0 4 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
-#runs .name .b { flex: 0 1 auto; min-width: 45%; overflow: hidden; text-overflow: ellipsis; }
+#runs .name .a { flex: 0 1 auto; min-width: 0; max-width: 50%; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
+#runs .name .b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 #runs li.off .name .a { color: var(--ink-3); }
 #runs .meta { color: var(--ink-3); font-size: 11px; white-space: nowrap; }
 #runs .meta .age { color: var(--ink-3); }
@@ -139,6 +139,12 @@ aside h2 .count { color: var(--ink-3); font-weight: 400; }
 input[type=range] { width: 120px; accent-color: var(--ink-2); }
 input[type=checkbox] { accent-color: var(--ink-2); width: 14px; height: 14px; margin: 0; }
 .ctl .val { min-width: 34px; text-align: right; color: var(--ink); }
+.runlim { gap: 4px; margin: 6px 0 0; padding: 0 4px; }
+.runlim input[type=range] { width: 96px; }
+.runlim .val { min-width: 44px; }
+.runlim .row > span:first-child { white-space: nowrap; }
+.runlim .val.on { color: var(--ink); font-weight: 600; }
+.runlim .val:not(.on) { color: var(--ink-3); }
 
 /* main */
 main { display: flex; min-height: 0; }
@@ -189,7 +195,7 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
 .tip {
   position: fixed; z-index: 20; pointer-events: none; display: none;
   background: var(--card-2); border: 1px solid var(--border-2); border-radius: 4px; padding: 6px 8px;
-  font-size: 12px; min-width: 140px; max-width: 320px; box-shadow: 0 4px 16px rgba(0,0,0,.25);
+  font-size: 12px; min-width: 140px; max-width: 440px; box-shadow: 0 4px 16px rgba(0,0,0,.25);
 }
 .tip.on { display: block; }
 .tip .th { color: var(--ink-2); margin-bottom: 4px; white-space: nowrap; }
@@ -199,7 +205,7 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
 .tip td.k i { display: block; width: 14px; height: 2px; background: var(--c); border-radius: 1px; }
 .tip td.v { font-weight: 600; text-align: right; }
 .tip td.r { color: var(--ink-3); text-align: right; }
-.tip td.n { color: var(--ink-2); max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.tip td.n { color: var(--ink-2); }
 .tip tr.hl td.n { color: var(--ink); }
 .tip tr.dim { opacity: .5; }
 /* text cards */
@@ -239,6 +245,10 @@ main[data-cols="4"] .grid { grid-template-columns: repeat(4, minmax(0,1fr)); }
 <aside>
   <h2>Runs <span class="count" id="runCount"></span></h2>
   <input type="text" id="runFilter" placeholder="filter runs (regex)" aria-label="Filter runs" spellcheck="false">
+  <div class="ctl runlim">
+    <div class="row" title="Hide runs whose longest series has fewer points than this, such as runs that crashed on start. Hidden runs leave the list and are no longer read. Each run is read once to count its points (cached after that), and a run written to in the last 30 minutes is never hidden by this."><span>min points</span><input type="range" id="minPts" min="0" step="1" aria-label="Minimum points per run"><span class="val num" id="minPtsVal">off</span></div>
+    <div class="row" title="Hide runs with nothing written in this many days. Hidden runs leave the list and are not read: with serve.py the file times come from its index, so old runs are skipped without a single read."><span>max age</span><input type="range" id="maxAge" min="0" step="1" aria-label="Maximum run age"><span class="val num" id="maxAgeVal">any</span></div>
+  </div>
   <div class="runtools">
     <span class="master" id="master" role="checkbox" tabindex="0" aria-checked="false" title="Toggle every listed run"><span class="sw"></span><span class="mlabel">all runs</span></span>
     <button data-act="invert" class="icon" title="Invert the selection of the listed runs" aria-label="Invert selection">⇄</button>
@@ -479,6 +489,7 @@ function workerMain() {
   }
   function flush(run) {
     for (const [s, m] of dirty) {
+      if (hiddenRuns.has(s.run)) continue; // sent whole if the run is shown again
       if (s.kind === 'scalar') {
         const steps = s.steps.slice(m, s.n), values = s.values.slice(m, s.n), walls = s.walls.slice(m, s.n);
         post({ type: 'scalar', run: s.run, tag: s.tag, truncateTo: m, steps, values, walls }, [steps.buffer, values.buffer, walls.buffer]);
@@ -487,7 +498,7 @@ function workerMain() {
       }
     }
     dirty.clear();
-    post({ type: 'runstat', run: run.name, warnings: run.warnings, ignored: run.ignored, bytes: run.bytes, files: [...run.files.values()].map(f => ({ name: f.name, fetched: f.fetched, corrupt: f.corrupt })) });
+    if (!hiddenRuns.has(run.name)) post({ type: 'runstat', run: run.name, warnings: run.warnings, ignored: run.ignored, bytes: run.bytes, files: [...run.files.values()].map(f => ({ name: f.name, fetched: f.fetched, corrupt: f.corrupt })) });
     scheduleSave(run);
   }
 
@@ -692,7 +703,7 @@ function workerMain() {
   function restoreRun(rec) {
     const run = newRun(rec.name);
     run.bytes = rec.bytes || 0; run.warnings = rec.warnings || []; run.ignored = rec.ignored || {}; run.plugins = new Map(rec.plugins || []);
-    for (const f of rec.files) run.files.set(f.name, { name: f.name, url: f.url, fetched: f.fetched, pending: f.pending || null, pendingLen: f.pending ? f.pending.length : 0, corrupt: !!f.corrupt, checked: 0, lastWall: f.lastWall || 0, grew: 0, size: -1 });
+    for (const f of rec.files) run.files.set(f.name, { name: f.name, url: f.url, fetched: f.fetched, pending: f.pending || null, pendingLen: f.pending ? f.pending.length : 0, corrupt: !!f.corrupt, checked: 0, lastWall: f.lastWall || 0, grew: 0, size: -1, mtime: 0, seen: f.fetched > 0 || !!f.corrupt });
     for (const x of rec.scalars) { const ser = scalarSeries(run, x.tag); ser.steps = x.steps; ser.values = x.values; ser.walls = x.walls; ser.n = x.steps.length; }
     for (const x of rec.hists) listSeries(run.hists, run, x.tag, 'hist').items = x.items;
     for (const x of rec.texts) listSeries(run.texts, run, x.tag, 'text').items = x.items;
@@ -712,7 +723,10 @@ function workerMain() {
       if (!rec || rec.format !== CACHE_FORMAT || rec.root !== root || rec.purge !== purge || runs.has(rec.name)) continue;
       try { restoreRun(rec); n++; } catch (e) { post({ type: 'log', level: 'warn', msg: `cache: could not restore ${rec.name}: ${e.message}` }); }
     }
-    if (n) { post({ type: 'runs', runs: [...runs.keys()], index: false, restored: n }); for (const run of runs.values()) postWholeRun(run); }
+    if (n) {
+      const now = Date.now(); for (const run of runs.values()) if (isExcluded(run, now)) hiddenRuns.add(run.name);
+      postRuns({ index: false, restored: n }); for (const run of runs.values()) if (!hiddenRuns.has(run.name)) postWholeRun(run);
+    }
     return n;
   }
   function scheduleSave(run) { dirtyRuns.add(run); if (!saveTimer) saveTimer = setTimeout(saveDirty, 1500); }
@@ -725,7 +739,44 @@ function workerMain() {
       tx.onerror = () => post({ type: 'log', level: 'warn', msg: 'cache: save failed: ' + (tx.error && tx.error.message) });
     } catch (e) { post({ type: 'log', level: 'warn', msg: 'cache: ' + e.message }); }
   }
-  function dropRun(run) { runs.delete(run.name); post({ type: 'removeRun', run: run.name }); scheduleSave(run); }
+  function dropRun(run) { runs.delete(run.name); hiddenRuns.delete(run.name); post({ type: 'removeRun', run: run.name }); scheduleSave(run); }
+
+  // ---- run filters: runs that are too short (failed starts) or long idle are dropped from the
+  //      page and never fetched or polled while filtered. A run's last activity comes from the
+  //      index's file times when serve.py provides them, so old runs are skipped without a read;
+  //      otherwise from the newest event read so far. Point counts need one read of each run
+  //      (cached afterwards), and a run written to in the last LIVE_MS is never too short, so a
+  //      fresh run is not hidden before it gets going.
+  let minPoints = 0, maxDays = 0;
+  const hiddenRuns = new Set(), LIVE_MS = 30 * 60000;
+  function runPoints(run) {
+    let n = 0;
+    for (const s of run.scalars.values()) n = Math.max(n, s.n);
+    for (const s of run.hists.values()) n = Math.max(n, s.items.length);
+    for (const s of run.texts.values()) n = Math.max(n, s.items.length);
+    return n;
+  }
+  function runActive(run) { let t = 0; for (const f of run.files.values()) t = Math.max(t, (f.lastWall || 0) * 1000, (f.mtime || 0) * 1000, f.grew || 0); return t; }
+  function isExcluded(run, now) {
+    const active = runActive(run);
+    if (maxDays > 0 && active > 0 && now - active > maxDays * 86400000) return true;
+    if (minPoints > 0 && now - active > LIVE_MS && run.files.size && [...run.files.values()].every(f => f.seen || f.corrupt) && runPoints(run) < minPoints) return true;
+    return false;
+  }
+  function postRuns(extra) { post({ type: 'runs', runs: [...runs.keys()].filter(n => !hiddenRuns.has(n)), hidden: hiddenRuns.size, index: indexMode === true, ...extra }); }
+  // re-evaluate every run; hidden ones are removed from the page, shown-again ones sent whole
+  // returns { changed, back }: back counts runs shown again, which may need reading
+  function applyFilters() {
+    const now = Date.now(), back = [];
+    let changed = false;
+    for (const run of runs.values()) {
+      const ex = isExcluded(run, now);
+      if (ex && !hiddenRuns.has(run.name)) { hiddenRuns.add(run.name); post({ type: 'removeRun', run: run.name }); changed = true; }
+      else if (!ex && hiddenRuns.has(run.name)) { hiddenRuns.delete(run.name); back.push(run); changed = true; }
+    }
+    if (changed) { postRuns(); for (const run of back) postWholeRun(run); }
+    return { changed, back: back.length };
+  }
 
   // ---- index endpoint (serve.py): one request lists every file with its size ----------
   let indexMode = null; // null = untested, true = use __index, false = walk directory listings
@@ -740,7 +791,7 @@ function workerMain() {
       const parts = f.path.split('/'); const name = parts.pop(); if (!name.includes('tfevents')) continue;
       const run = parts.length ? parts.join('/') : '.';
       if (!found.has(run)) found.set(run, []);
-      found.get(run).push({ url: root + parts.concat(name).map(encodeURIComponent).join('/'), name, size: f.size });
+      found.get(run).push({ url: root + parts.concat(name).map(encodeURIComponent).join('/'), name, size: f.size, mtime: f.mtime || 0 });
     }
     for (const files of found.values()) files.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
     return found;
@@ -768,7 +819,7 @@ function workerMain() {
   async function cycle(force) {
     if (busy) { if (force) pendingForce = true; return; }
     busy = true; clearTimeout(timer);
-    const t0 = Date.now(); let netErrors = 0;
+    const t0 = Date.now(); let netErrors = 0, filtered = false;
     try {
       let listing = null;
       if (indexMode !== false) {
@@ -787,16 +838,18 @@ function workerMain() {
           const run = runs.get(name) || newRun(name);
           for (const f of files) {
             let file = run.files.get(f.name);
-            if (!file) { file = { name: f.name, url: f.url, fetched: 0, pending: null, pendingLen: 0, corrupt: false, checked: 0, lastWall: 0, grew: 0, size: -1 }; run.files.set(f.name, file); }
+            if (!file) { file = { name: f.name, url: f.url, fetched: 0, pending: null, pendingLen: 0, corrupt: false, checked: 0, lastWall: 0, grew: 0, size: -1, mtime: 0, seen: false }; run.files.set(f.name, file); }
             file.size = f.size != null ? f.size : -1;
+            if (f.mtime) file.mtime = f.mtime;
           }
         }
         if (indexMode === true || force) for (const run of [...runs.values()]) if (!listing.has(run.name)) dropRun(run);
-        post({ type: 'runs', runs: [...runs.keys()], index: indexMode === true });
       }
+      if (!applyFilters().changed && listing) postRuns();
       const now = Date.now();
       const work = []; // [run, files(sorted), due(Set)]
       for (const run of runs.values()) {
+        if (hiddenRuns.has(run.name)) continue; // filtered out: not read, not polled
         const files = [...run.files.values()].sort((a, b) => a.name < b.name ? -1 : 1);
         const shown = !selected || selected.has(run.name);
         // index mode: sizes are already known, so a file is due exactly when it changed or was never read
@@ -833,11 +886,15 @@ function workerMain() {
               if (await fetchFile(run, file)) { changed = true; if (!firstRead) file.grew = Date.now(); }
               file.checked = Date.now(); bytes += run.bytes - before;
             }
+            file.seen = true;
           } catch (e) { run.warnings.push(`${file.name}: ${e.message}`); changed = true; netErrors++; }
           done++; prog();
         }
+        // a run that turns out too short is hidden before its data reaches the page
+        if (isExcluded(run, Date.now())) { hiddenRuns.add(run.name); post({ type: 'removeRun', run: run.name }); filtered = true; }
         if (changed || dirty.size) flush(run);
       })));
+      if (filtered) postRuns();
       if (netErrors) { backoff = Math.min(backoff * 2, 16); post({ type: 'netError', msg: `${netErrors} request${netErrors > 1 ? 's' : ''} failed`, retryMs: intervalMs * backoff }); }
       else backoff = 1;
       post({ type: 'progress', phase: 'idle', done, total, bytes, ms: Date.now() - t0, polled: total, files: [...runs.values()].reduce((a, r) => a + r.files.size, 0), error: netErrors ? 'server unreachable' : null, retryMs: netErrors ? intervalMs * backoff : 0 });
@@ -849,16 +906,17 @@ function workerMain() {
     for (const s of run.scalars.values()) truncScalar(s, 0);
     for (const s of run.hists.values()) truncList(s, 0);
     for (const s of run.texts.values()) truncList(s, 0);
-    for (const f of run.files.values()) { f.fetched = 0; f.pending = null; f.pendingLen = 0; f.corrupt = false; f.lastWall = 0; f.grew = 0; }
+    for (const f of run.files.values()) { f.fetched = 0; f.pending = null; f.pendingLen = 0; f.corrupt = false; f.lastWall = 0; f.grew = 0; f.seen = false; }
     run.warnings.length = 0; run.ignored = {}; run.bytes = 0;
     post({ type: 'reset', run: run.name });
   }
   self.onmessage = (e) => {
     const m = e.data;
-    if (m.type === 'start') { root = m.root; intervalMs = m.intervalMs; purge = m.purge; restoreAll().then(() => cycle(true)); }
+    if (m.type === 'start') { root = m.root; intervalMs = m.intervalMs; purge = m.purge; minPoints = m.minPoints || 0; maxDays = m.maxDays || 0; restoreAll().then(() => cycle(true)); }
     else if (m.type === 'refresh') cycle(!!m.force);
     else if (m.type === 'visible') { hidden = !m.visible; if (hidden) clearTimeout(timer); else if (!busy) cycle(false); }
     else if (m.type === 'selection') { const before = selected; selected = m.runs ? new Set(m.runs) : null; const newlyShown = m.runs ? m.runs.some(n => before && !before.has(n)) : !!before; if (newlyShown) cycle(false); }
+    else if (m.type === 'filters') { minPoints = m.minPoints || 0; maxDays = m.maxDays || 0; if (applyFilters().back && !busy) cycle(false); }
     else if (m.type === 'interval') { intervalMs = m.intervalMs; if (!busy) schedule(); }
     else if (m.type === 'purge') { purge = m.purge; for (const run of runs.values()) { resetRun(run); flush(run); } cycle(true); }
     else if (m.type === 'clearCache') { if (db) { try { db.transaction('runs', 'readwrite').objectStore('runs').clear(); } catch {} } }
@@ -925,7 +983,7 @@ for (const lvl of ['error', 'warn']) { const orig = console[lvl].bind(console); 
 const params = new URLSearchParams(location.search);
 const rootUrl = (() => { let u = new URL(params.get('logdir') || '.', location.href); u.search = ''; u.hash = ''; if (!u.pathname.endsWith('/')) u.pathname += '/'; return u.href; })();
 const storeKey = 'blernsboard:' + rootUrl;
-const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, pal: 'default', cb: false, closed: [], allClosed: false, rev: false, side: 264, z: false, split: false, tags2: '', d: 2000 };
+const DEF = { runs: null, tags: '', s: 0, x: 'step', y: 'lin', o: true, pin: [], cols: 0, r: 15, sync: false, keep: false, theme: 'dark', colors: {}, pal: 'default', cb: false, closed: [], allClosed: false, rev: false, side: 264, z: false, split: false, tags2: '', d: 2000, mp: 0, md: 0 };
 const state = { ...DEF };
 function loadState() {
   let saved = {}; try { saved = JSON.parse(localStorage.getItem(storeKey) || '{}'); } catch {}
@@ -942,6 +1000,8 @@ function loadState() {
     if (h.has('o')) state.o = h.get('o') === '1';
     if (h.has('z')) state.z = h.get('z') === '1';
     if (h.has('d')) state.d = +h.get('d') || 0;
+    if (h.has('mp')) state.mp = +h.get('mp') || 0;
+    if (h.has('md')) state.md = +h.get('md') || 0;
     if (h.has('pin')) state.pin = h.get('pin') ? h.get('pin').split(',').map(decodeURIComponent) : [];
     if (h.has('cols')) state.cols = +h.get('cols') || 0;
     if (h.has('r')) state.r = +h.get('r');
@@ -954,6 +1014,8 @@ function loadState() {
   if (!PALETTES[state.pal]) state.pal = 'default';
   if (!['step', 'rel', 'wall'].includes(state.x)) state.x = 'step';
   if (!['lin', 'log'].includes(state.y)) state.y = 'lin';
+  if (![0, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000].includes(state.mp)) state.mp = 0;
+  if (![0, 1, 2, 3, 7, 14, 30, 60, 90, 180, 365].includes(state.md)) state.md = 0;
 }
 let saveTimer = null;
 function saveState() {
@@ -970,6 +1032,8 @@ function saveState() {
     if (!state.o) h.set('o', '0');
     if (state.z) h.set('z', '1');
     if (state.d !== 2000) h.set('d', String(state.d));
+    if (state.mp) h.set('mp', String(state.mp));
+    if (state.md) h.set('md', String(state.md));
     if (state.pin.length) h.set('pin', state.pin.map(encodeURIComponent).join(','));
     if (state.cols) h.set('cols', String(state.cols));
     if (state.r !== 15) h.set('r', String(state.r));
@@ -1034,6 +1098,40 @@ function mix(a, b, t) {
   return '#' + pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0')).join('');
 }
 function hex(h) { return [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); }
+// names shortened to the part that differs between the listed runs: path segments every run shares are dropped,
+// then the text all runs share at the start and end of each remaining segment (cut at a _ - . boundary, 4+ characters)
+let shortMap = null, shortKey = [];
+function shortName(name) {
+  const key = [runRegex, runs.size];
+  if (!shortMap || key.some((k, i) => k !== shortKey[i])) { shortKey = key; shortMap = buildShort([...runs.keys()].filter(n => matches(runRegex, n))); }
+  return shortMap.get(name) ?? name;
+}
+function buildShort(names) {
+  const out = new Map();
+  if (names.length < 2) { for (const n of names) out.set(n, n.slice(n.lastIndexOf('/') + 1)); return out; }
+  const unique = rows => new Set(rows.map(r => r.join('/'))).size === rows.length && rows.every(r => r.join('').length);
+  let rows = names.map(n => n.split('/'));
+  // segments present in every name
+  const common = [...new Set(rows[0])].filter(seg => rows.every(r => r.includes(seg)));
+  for (const seg of common) { const next = rows.map(r => r.filter(x => x !== seg)); if (unique(next)) rows = next; }
+  const SEP = /[_\-. ]/;
+  const trim = col => {
+    let p = 0; const m = Math.min(...col.map(c => c.length));
+    while (p < m && col.every(c => c[p] === col[0][p])) p++;
+    while (p > 0 && !(SEP.test(col[0][p - 1]) && col.every(c => c.length > p))) p--;
+    if (p < 4) p = 0; // a short shared prefix like lr_ is context worth keeping
+    let q = 0; const m2 = Math.min(...col.map(c => c.length - p));
+    while (q < m2 && col.every(c => c[c.length - 1 - q] === col[0][col[0].length - 1 - q])) q++;
+    while (q > 0 && !(SEP.test(col[0][col[0].length - q]) && col.every(c => c.length - p > q))) q--;
+    if (q < 4) q = 0;
+    return col.map(c => c.slice(p, c.length - q));
+  };
+  if (rows.every(r => r.length === rows[0].length)) {
+    for (let j = 0; j < rows[0].length; j++) { const col = trim(rows.map(r => r[j])); const next = rows.map((r, i) => r.map((x, k) => k === j ? col[i] : x)); if (unique(next)) rows = next; }
+  } else { const col = trim(rows.map(r => r.join('/'))); const next = col.map(c => [c]); if (unique(next)) rows = next; }
+  names.forEach((n, i) => out.set(n, rows[i].join('/')));
+  return out;
+}
 function natCmp(a, b) { return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }); }
 const collator = natCmp;
 
@@ -1045,7 +1143,7 @@ const dirtyTags = new Set();
 worker.onmessage = (e) => {
   const m = e.data;
   switch (m.type) {
-    case 'runs': rootProblem = false; if (m.index != null && !m.restored) indexMode = !!m.index; if (m.restored) setFresh('busy', `restored ${m.restored} runs from cache, checking for changes`); assignColors(m.runs); for (const n of m.runs) getRun(n); queueSidebar(); queueLayout(); sendSelection(); break;
+    case 'runs': rootProblem = false; hiddenCount = m.hidden || 0; if (m.index != null && !m.restored) indexMode = !!m.index; if (m.restored) setFresh('busy', `restored ${m.restored} runs from cache, checking for changes`); assignColors(m.runs); for (const n of m.runs) getRun(n); queueSidebar(); queueLayout(); sendSelection(); break;
     case 'scalar': {
       const run = getRun(m.run);
       let s = run.scalars.get(m.tag);
@@ -1137,6 +1235,15 @@ function fmtVal(v) {
   if (a >= 1000) return v.toFixed(a >= 1e5 ? 0 : 1);
   return trimZero(v.toPrecision(5));
 }
+// one formatter for a column of values: the same decimals on every row, enough for 4 significant digits on the largest
+function colFmt(vals) {
+  const a = Math.max(0, ...vals.filter(Number.isFinite).map(Math.abs));
+  if (!a || a >= 1e6 || a < 1e-4) return fmtVal;
+  const d = Math.min(8, Math.max(0, 3 - Math.floor(Math.log10(a))));
+  return v => Number.isFinite(v) ? v.toFixed(d) : String(v);
+}
+// cut the middle out of a long string: the start and the end of a run name are what tell runs apart
+function midCut(t, max) { if (t.length <= max) return t; const tail = Math.ceil((max - 1) * 0.55); return t.slice(0, max - 1 - tail) + '…' + t.slice(t.length - tail); }
 function fmtStep(v) { return Number.isInteger(v) ? v.toLocaleString() : fmtVal(v); }
 function fmtDur(sec, short) {
   if (!Number.isFinite(sec)) return '';
@@ -1225,7 +1332,7 @@ function applyTheme() {
 }
 
 // ---- UI: sidebar ------------------------------------------------------------------
-let runRegex = null, hoverRun = null;
+let runRegex = null, hoverRun = null, hiddenCount = 0;
 function isSelected(name) { return !state.runs || state.runs.includes(name); }
 function selectedRuns() { return [...runs.values()].filter(r => isSelected(r.name) && matches(runRegex, r.name)).sort((a, b) => natCmp(a.name, b.name)); }
 function matches(re, s) { return !re || re.test(s); }
@@ -1244,8 +1351,6 @@ function renderSidebar() {
     if (!li) {
       li = document.createElement('li'); li.dataset.run = name; li.tabIndex = 0; li.setAttribute('role', 'checkbox');
       li.innerHTML = '<span class="sw"></span><span class="name"><span class="a"></span><span class="b"></span></span><span class="warn" hidden>⚠</span><span class="meta num"></span>';
-      const cut = name.lastIndexOf('/') + 1;
-      li.querySelector('.name .a').textContent = name.slice(0, cut); li.querySelector('.name .b').textContent = name.slice(cut);
       li.addEventListener('click', e => toggleRun(name, e.altKey));
       li.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggleRun(name, e.altKey); } });
       li.addEventListener('dblclick', e => { if (e.target.classList.contains('sw')) { e.stopPropagation(); r.idx++; state.colors[name] = r.idx; li.style.setProperty('--c', runColor(r)); for (const c of cards.values()) markDirty(c); requestRender(); saveState(); } });
@@ -1256,6 +1361,8 @@ function renderSidebar() {
     const on = isSelected(name), shown = matches(runRegex, name);
     li.classList.toggle('off', !on); li.setAttribute('aria-checked', String(on)); li.hidden = !shown; if (shown) visible++;
     li.style.setProperty('--c', runColor(r));
+    const short = shortName(name), cut = short.lastIndexOf('/') + 1;
+    li.querySelector('.name .a').textContent = short.slice(0, cut); li.querySelector('.name .b').textContent = short.slice(cut);
     const meta = li.querySelector('.meta');
     meta.textContent = '';
     if (Number.isFinite(r.lastStep)) meta.appendChild(document.createTextNode(fmtSI(r.lastStep, r.lastStep >= 1e4 ? 1 : 0)));
@@ -1269,7 +1376,8 @@ function renderSidebar() {
   }
   for (const li of existing.values()) li.remove();
   const sel = selectedRuns().length;
-  $('#runCount').textContent = names.length ? `${sel}/${names.length}` : '';
+  $('#runCount').textContent = names.length || hiddenCount ? `${sel}/${names.length}` + (hiddenCount ? ` · ${hiddenCount} hidden` : '') : '';
+  $('#runCount').title = hiddenCount ? `${hiddenCount} runs hidden by the min points / active within sliders` : '';
   const shown = names.filter(n => matches(runRegex, n)), on = shown.filter(isSelected).length;
   const master = $('#master'); master.setAttribute('aria-checked', on === 0 ? 'false' : on === shown.length ? 'true' : 'mixed');
   master.querySelector('.mlabel').textContent = runRegex ? `all ${shown.length} matching runs` : 'all runs';
@@ -1329,6 +1437,25 @@ $('#runFilter').addEventListener('input', e => {
   try { runRegex = v ? new RegExp(v, 'i') : null; e.target.classList.remove('bad'); } catch { e.target.classList.add('bad'); return; }
   renderSidebar(); queueLayout(true); sendSelection(); if (palette().ramp) recolor();
 });
+// run filters: slider positions map to these steps; 0 = off. Days run from short to 'any' so right is always more runs.
+const MIN_PTS = [0, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
+const MAX_DAYS = [1, 2, 3, 7, 14, 30, 60, 90, 180, 365, 0];
+let filterTimer = null;
+function syncRunLimits() {
+  const pi = Math.max(0, MIN_PTS.indexOf(state.mp)), di = MAX_DAYS.indexOf(state.md);
+  $('#minPts').max = MIN_PTS.length - 1; $('#minPts').value = pi;
+  $('#maxAge').max = MAX_DAYS.length - 1; $('#maxAge').value = di < 0 ? MAX_DAYS.length - 1 : di;
+  const pv = $('#minPtsVal'), dv = $('#maxAgeVal');
+  pv.textContent = state.mp ? '≥ ' + fmtSI(state.mp, 0) : 'off'; pv.classList.toggle('on', !!state.mp);
+  dv.textContent = state.md ? state.md + ' d' : 'any'; dv.classList.toggle('on', !!state.md);
+}
+function onRunLimits() {
+  state.mp = MIN_PTS[+$('#minPts').value] || 0; state.md = MAX_DAYS[+$('#maxAge').value] || 0;
+  syncRunLimits(); saveState();
+  clearTimeout(filterTimer); filterTimer = setTimeout(() => worker.postMessage({ type: 'filters', minPoints: state.mp, maxDays: state.md }), 250);
+}
+$('#minPts').addEventListener('input', onRunLimits);
+$('#maxAge').addEventListener('input', onRunLimits);
 function setHoverRun(name) {
   if (hoverRun === name) return; hoverRun = name;
   for (const li of $('#runs').children) li.classList.toggle('hl', li.dataset.run === name);
@@ -1811,13 +1938,15 @@ function drawHover(card, px, py) {
   const table = document.createElement('table');
   const MAXROWS = 14; let shown = rows;
   if (rows.length > MAXROWS) { const bi = rows.indexOf(best.row); const lo = Math.max(0, Math.min(bi - Math.floor(MAXROWS / 2), rows.length - MAXROWS)); shown = rows.slice(lo, lo + MAXROWS); }
+  const fmt = colFmt(shown.flatMap(row => [row.v, row.raw]));
   for (const row of shown) {
     const tr = document.createElement('tr'); if (row === best.row) tr.className = 'hl'; if (hoverRun && hoverRun !== row.S.r.name) tr.classList.add('dim');
     const k = document.createElement('td'); k.className = 'k'; const i = document.createElement('i'); i.style.setProperty('--c', runColor(row.S.r)); k.appendChild(i);
-    const v = document.createElement('td'); v.className = 'v num'; v.textContent = fmtVal(row.v);
+    const v = document.createElement('td'); v.className = 'v num'; v.textContent = fmt(row.v);
     tr.appendChild(k); tr.appendChild(v);
-    if (R.sw > 0) { const rr = document.createElement('td'); rr.className = 'r num'; rr.textContent = fmtVal(row.raw); tr.appendChild(rr); }
-    const n = document.createElement('td'); n.className = 'n'; n.textContent = row.S.r.name; n.title = row.S.r.name;
+    // the unsmoothed value only for the row under the cursor; the empty cells keep the columns aligned
+    if (R.sw > 0) { const rr = document.createElement('td'); rr.className = 'r num'; if (row === best.row) { rr.textContent = fmt(row.raw); rr.title = 'unsmoothed'; } tr.appendChild(rr); }
+    const n = document.createElement('td'); n.className = 'n'; n.textContent = midCut(shortName(row.S.r.name), 38); n.title = row.S.r.name;
     if (row.S !== S0) { const binW = (S0.view || row.S.view) ? (R.x1 - R.x0) / Math.max(1, state.d | 0) : 0; if (Math.abs(row.S.xs[row.i] - S0.xs[i0]) > binW) n.textContent += ` @${fmtSI(row.S.steps[row.i], 1)}`; }
     tr.appendChild(n); table.appendChild(tr);
   }
@@ -2036,9 +2165,9 @@ panes[0].input.value = state.tags; panes[1].input.value = state.tags2;
 for (const pane of panes) { const v = pane.id === 0 ? state.tags : state.tags2; try { pane.regex = v ? new RegExp(v, 'i') : null; } catch { pane.regex = null; pane.input.classList.add('bad'); } }
 $('#split').checked = !!state.split; panes[1].el.hidden = !state.split;
 $('#main').dataset.cols = state.cols || '';
-syncX(); syncY(); syncCols(); syncDens(); syncPalette();
+syncX(); syncY(); syncCols(); syncDens(); syncPalette(); syncRunLimits();
 panes[0].content.innerHTML = '<div class="state"><h2>Reading logs</h2><p>Listing <code></code></p></div>'; panes[0].content.querySelector('code').textContent = rootLabel();
-worker.postMessage({ type: 'start', root: rootUrl, intervalMs: state.r * 1000, purge: !state.keep });
+worker.postMessage({ type: 'start', root: rootUrl, intervalMs: state.r * 1000, purge: !state.keep, minPoints: state.mp, maxDays: state.md });
 document.addEventListener('visibilitychange', () => worker.postMessage({ type: 'visible', visible: !document.hidden }));
 // sidebar resize
 document.body.style.setProperty('--side', Math.min(600, Math.max(180, state.side || 264)) + 'px');
