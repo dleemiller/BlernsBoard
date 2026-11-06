@@ -1211,6 +1211,14 @@ function fmtSI(v, digits) {
   for (const [m, u] of units) if (a >= m) return trimZero((v / m).toFixed(digits)) + u;
   return trimZero(v.toFixed(digits));
 }
+// SI with a fixed number of significant digits (default 3): 1,713 -> 1.71k, 17,130 -> 17.1k, 171,300 -> 171k
+function fmtSISig(v, sig = 3) {
+  if (Math.abs(v) < 1e3) return String(Math.round(v));
+  v = Number(v.toPrecision(sig));  // round first so 999,999 -> 1M, not 1000k
+  const a = Math.abs(v), m = [1e12, 1e9, 1e6, 1e3].find(x => a >= x) || 1;
+  const n = Math.floor(Math.log10(a / m)) + 1;
+  return fmtSI(v, Math.max(0, sig - n));
+}
 function trimZero(s) { return s.includes('.') ? s.replace(/\.?0+$/, '') : s; }
 function fmtTicks(ticks, step, si) {
   const maxAbs = Math.max(...ticks.map(Math.abs));
@@ -1365,7 +1373,7 @@ function renderSidebar() {
     li.querySelector('.name .a').textContent = short.slice(0, cut); li.querySelector('.name .b').textContent = short.slice(cut);
     const meta = li.querySelector('.meta');
     meta.textContent = '';
-    if (Number.isFinite(r.lastStep)) meta.appendChild(document.createTextNode(fmtSI(r.lastStep, r.lastStep >= 1e4 ? 1 : 0)));
+    if (Number.isFinite(r.lastStep)) meta.appendChild(document.createTextNode(fmtSISig(r.lastStep)));
     if (r.lastWall) { const age = document.createElement('span'); age.className = 'age'; meta.appendChild(document.createTextNode(' · ')); meta.appendChild(age); }
     updateAge(li, r);
     const ign = Object.entries(r.ignored).map(([k, v]) => `${v} ${k} summaries not shown`).join('\n');
@@ -1775,7 +1783,7 @@ function drawScalar(card) {
   const notes = [];
   if (log && !anyPositive) { useLog = false; notes.push('log axis unavailable: no positive values'); }
   else if (log && skipped) notes.push(`log axis: ${skipped} non-positive point${skipped > 1 ? 's' : ''} hidden`);
-  if (decimated) notes.push(`${fmtSI(decimated.shown, 0)} of ${fmtSI(decimated.of, 0)} points, bin means with range shaded`);
+  if (decimated) notes.push(`${fmtSISig(decimated.shown)} of ${fmtSISig(decimated.of)} points, bin means with range shaded`);
   card.note.textContent = notes.join(' · ');
   if (!Number.isFinite(y0) || !Number.isFinite(y1)) { y0 = 0; y1 = 1; }
   if (state.z && !useLog) { if (y0 > 0) y0 = 0; if (y1 < 0) y1 = 0; }
@@ -1947,7 +1955,7 @@ function drawHover(card, px, py) {
     // the unsmoothed value only for the row under the cursor; the empty cells keep the columns aligned
     if (R.sw > 0) { const rr = document.createElement('td'); rr.className = 'r num'; if (row === best.row) { rr.textContent = fmt(row.raw); rr.title = 'unsmoothed'; } tr.appendChild(rr); }
     const n = document.createElement('td'); n.className = 'n'; n.textContent = midCut(shortName(row.S.r.name), 38); n.title = row.S.r.name;
-    if (row.S !== S0) { const binW = (S0.view || row.S.view) ? (R.x1 - R.x0) / Math.max(1, state.d | 0) : 0; if (Math.abs(row.S.xs[row.i] - S0.xs[i0]) > binW) n.textContent += ` @${fmtSI(row.S.steps[row.i], 1)}`; }
+    if (row.S !== S0) { const binW = (S0.view || row.S.view) ? (R.x1 - R.x0) / Math.max(1, state.d | 0) : 0; if (Math.abs(row.S.xs[row.i] - S0.xs[i0]) > binW) n.textContent += ` @${fmtSISig(row.S.steps[row.i])}`; }
     tr.appendChild(n); table.appendChild(tr);
   }
   tip.appendChild(table);
@@ -2106,7 +2114,7 @@ function bindHistEvents(card) {
     const tip = card.tip; tip.innerHTML = '';
     const th = document.createElement('div'); th.className = 'th num'; th.textContent = `step ${fmtStep(it.step)} · ${fmtDate(it.wall)}`; tip.appendChild(th);
     const tb = document.createElement('table');
-    for (const [k, v] of [['count', fmtSI(n, 0)], ['mean', fmtVal(sum / (n || 1))], ['min', fmtVal(it.edges[0])], ['max', fmtVal(it.edges[it.edges.length - 1])], ['value at cursor', fmtVal(R.v1 - (py - M.t) / R.ph * (R.v1 - R.v0))]]) {
+    for (const [k, v] of [['count', fmtSISig(n)], ['mean', fmtVal(sum / (n || 1))], ['min', fmtVal(it.edges[0])], ['max', fmtVal(it.edges[it.edges.length - 1])], ['value at cursor', fmtVal(R.v1 - (py - M.t) / R.ph * (R.v1 - R.v0))]]) {
       const tr = document.createElement('tr'); const a = document.createElement('td'); a.className = 'n'; a.textContent = k; const b = document.createElement('td'); b.className = 'v num'; b.textContent = v; tr.appendChild(b); tr.appendChild(a); tb.appendChild(tr);
     }
     tip.appendChild(tb); tip.classList.add('on');
