@@ -15,7 +15,7 @@ page refreshes with a single request instead of one per directory and file.
 import argparse, gzip, json, os, sys, functools, time, threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 HERE = os.path.dirname(os.path.abspath(__file__))
 PAGE = os.path.join(HERE, "blernsboard.html")
 
@@ -39,14 +39,19 @@ class Handler(SimpleHTTPRequestHandler):
                 body = hit[1]
             else:
                 files = []
+                seen = set()  # real paths already walked: symlinked run dirs are followed, link loops are not
                 def walk(d, rel, depth):
+                    real = os.path.realpath(d)
+                    if real in seen:
+                        return
+                    seen.add(real)
                     try:
                         with os.scandir(d) as it:
                             for e in it:
                                 if e.name.startswith("."):
                                     continue
                                 try:
-                                    if e.is_dir(follow_symlinks=False):
+                                    if e.is_dir():
                                         if depth < 10:
                                             walk(e.path, rel + e.name + "/", depth + 1)
                                     elif "tfevents" in e.name and e.is_file():
